@@ -69,7 +69,7 @@ def import_binary_LIF_cts(file_path, skip_start=0, skip_end=0, dtype='>i2'):
     return binary_data
 
 
-def calc_SO2_mix_r(binary_data_dict, log_start_datetime, sensitivity=1, return_headers='All', group_avg=2):
+def calc_SO2_mix_r(binary_data_dict, log_start_datetime, sensitivity=1, bckgrnd=0, data_freq=10, return_headers='All'):
     epoch_time = (dt.strptime(log_start_datetime, '%d/%m/%Y %H:%M:%S') - dt.strptime('01/01/1904',
                                                                                      '%d/%m/%Y')).total_seconds()
     # epoch time is the number of seconds between 01/01/1904 and the log_start_time
@@ -97,9 +97,12 @@ def calc_SO2_mix_r(binary_data_dict, log_start_datetime, sensitivity=1, return_h
     time_on = []
     time_off = []
 
+    group_avg = int((1 / data_freq) * 10)
+    skip_set = (100 * group_avg) - 100  # skip_set = 100 yields 5 Hz data
+
     for i in range(len(binary_data_dict['time_ms']) - 1):
         if binary_data_dict['seed_LD_mode'][i] == 6 and binary_data_dict['seed_LD_mode'][i + 1] == 5:
-            if binary_data_dict['time_ms'][i] - time_SO2_binary_data[-1] != 100:
+            if binary_data_dict['time_ms'][i] - time_SO2_binary_data[-1] != skip_set:
                 time_SO2_binary_data.append(binary_data_dict['time_ms'][i])
 
                 return_data_dict['Time_ms'] = return_data_dict['Time_ms'] + \
@@ -116,7 +119,8 @@ def calc_SO2_mix_r(binary_data_dict, log_start_datetime, sensitivity=1, return_h
                 set_len = (group_avg * len(on_cts[0])) + (group_avg * len(off_cts[0]))
 
                 SO2_mr.append(
-                    ((((np.mean(on_cts) - np.mean(off_cts)) * set_len) / 5) / (sensitivity * (200 / 1000))))
+                    ((((np.mean(on_cts) - np.mean(off_cts)) * set_len) - (bckgrnd / data_freq))
+                     / (sensitivity * (((1 / data_freq) * 1000) / 1000))))
 
                 cts_diff.append((np.mean(on_cts) - np.mean(off_cts)) * set_len)
 
