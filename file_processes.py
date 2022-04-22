@@ -122,7 +122,7 @@ def calc_SO2_mix_r(binary_data_dict, log_start_datetime, sensitivity=1, bckgrnd=
                     ((((np.mean(on_cts) - np.mean(off_cts)) * set_len) - (bckgrnd / data_freq))
                      / (sensitivity * (((1 / data_freq) * 1000) / 1000))))
 
-                cts_diff.append((np.mean(on_cts) - np.mean(off_cts)) * set_len)
+                cts_diff.append((np.mean(on_cts) - np.mean(off_cts)) * set_len * data_freq)
 
         if binary_data_dict['seed_LD_mode'][i] == 5:
             time_off.append(binary_data_dict['time_ms'][i] + (epoch_time * 1000))

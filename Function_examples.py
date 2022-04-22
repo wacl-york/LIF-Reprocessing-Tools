@@ -21,10 +21,14 @@ binary_data = import_binary_LIF_cts('Binary data', skip_start=5)
 log_datetime_str = '20/04/2022 15:26:36'
 SO2_LOD = 1000
 
-reprocess_binary_data = calc_SO2_mix_r(binary_data, log_datetime_str, sensitivity=0.6, data_freq=5)
+reprocess_binary_data = calc_SO2_mix_r(binary_data, log_datetime_str, sensitivity=0.6, data_freq=10)
 
 start_cal_ind = index_timestamp('20/04/2022 17:00:00', np.array(reprocess_binary_data['Time_ms']) / 1000)
 end_cal_ind = index_timestamp('20/04/2022 17:13:00', np.array(reprocess_binary_data['Time_ms']) / 1000)
+
+plt.plot(reprocess_binary_data['Time_ms'][start_cal_ind: end_cal_ind]
+         , reprocess_binary_data['Cts_diff'][start_cal_ind: end_cal_ind])
+plt.show()
 
 plt.title('Example Calibration (1 Hz Data)')
 plt.plot(reprocess_binary_data['Time_ms'][start_cal_ind: end_cal_ind]
