@@ -1,0 +1,94 @@
+Log File Created @ 11:40:50.760   04/20/22
+
+Wed, Apr 20, 2022, 11:40:50 AM: EOM_T_ThresholdNo Error
+
+Wed, Apr 20, 2022, 11:40:50 AM: Regen2_VoltageNo Error
+run startup.txt // 11:40:51.886   04/20/22
+run  go_laser.txt // 11:40:51.895   04/20/22
+run  go_run.txt // 11:40:51.897   04/20/22
+//wait 5 // 11:40:51.899   04/20/22
+//set task 4 // 11:40:51.899   04/20/22
+ // 11:40:51.903   04/20/22
+//set pops on // 11:40:51.904   04/20/22
+
+Wed, Apr 20, 2022, 11:40:51 AM: Error writing to UDPNo Error
+ // 11:40:51.905   04/20/22
+//waitonP < 900 // 11:40:51.905   04/20/22
+ // 11:40:51.906   04/20/22
+//send485 !ZSC 010; set p control gain // 11:40:51.906   04/20/22
+//wait1 // 11:40:51.907   04/20/22
+//send485 !ZSI 020; set p control deadband // 11:40:51.907   04/20/22
+ // 11:40:51.908   04/20/22
+//set seed enable true // 11:40:51.909   04/20/22
+//set regen enable true // 11:40:51.910   04/20/22
+//set preamp ld enable true // 11:40:51.911   04/20/22
+ // 11:40:51.912   04/20/22
+//set PumpV 2.0 // 11:40:51.913   04/20/22
+//wait 5 // 11:40:51.913   04/20/22
+//set scroll pump valve on // 11:40:51.914   04/20/22
+//set pflow 2.4 // 11:40:51.915   04/20/22
+//set za mfc 0 // 11:40:51.917   04/20/22
+//set za lo mfc 15 // 11:40:51.919   04/20/22
+//set za sb mfc 25 // 11:40:51.920   04/20/22
+//set so2 sb vl on // 11:40:51.921   04/20/22
+//set so2 sb mfc 10 // 11:40:51.924   04/20/22
+//set so2 mfc 2 // 11:40:51.925   04/20/22
+ // 11:40:51.928   04/20/22
+//wait 20; wait to be sure EOM is good // 11:40:51.929   04/20/22
+//set task 9 // 11:40:51.930   04/20/22
+//set main ld current 5.5 // 11:40:51.930   04/20/22
+ // 11:40:51.931   04/20/22
+//wait 30 // 11:40:51.931   04/20/22
+  // 11:40:51.932   04/20/22
+//after 10 set shutdownonp true // 11:40:51.932   04/20/22
+ // 11:40:51.933   04/20/22
+set runningring false // 11:40:51.933   04/20/22
+ // 11:40:51.934   04/20/22
+//set pfind true // 11:40:51.934   04/20/22
+set dtm constant // 11:40:51.935   04/20/22
+//set seed pulse true // 11:40:51.935   04/20/22
+//set EOM enable true          // start this, then wait 60 seconds // 11:40:51.936   04/20/22
+//set regen enable true        // start regen amplifier // 11:40:51.937   04/20/22
+//set preamp ld enable true    // turn on pre-amp // 11:40:51.937   04/20/22
+ // 11:40:51.938   04/20/22
+ // 11:40:51.939   04/20/22
+after 10 set cal so2 mfc 5 // 11:40:51.939   04/20/22
+after 10 set cal za mfc 50 // 11:40:51.940   04/20/22
+after 10 set inlet za mfc 0 // 11:40:51.940   04/20/22
+after 10 set za sb mfc 0 // 11:40:51.941   04/20/22
+after 10 set ref so2 mfc 0 // 11:40:51.941   04/20/22
+after 10 set ref za mfc 0 // 11:40:51.942   04/20/22
+after 10 set cal sb vl off // 11:40:51.942   04/20/22
+after 10 set ref sol true // 11:40:51.943   04/20/22
+ // 11:40:51.943   04/20/22
+//set scroll pump enable true            // start scroll pump // 11:40:51.944   04/20/22
+ // 11:40:51.945   04/20/22
+//set pumpv 0 // 11:40:51.946   04/20/22
+//after 10 set ref exhaust vl on         // start flow through ref cell // 11:40:51.947   04/20/22
+//after 10 set plug vl open		// open plug valve for sample flow // 11:40:51.947   04/20/22
+//after 15 set ref so2 mfc 0             // 11:40:51.948   04/20/22
+//after 15 set ref za mfc 0 // 11:40:51.949   04/20/22
+//after 15 set cal sb vl on		// start flow of cal gas and cal suck-back              // 11:40:51.950   04/20/22
+//after 15 set cal so2 mfc 0 // 11:40:51.950   04/20/22
+//after 15 set cal za mfc 0 // 11:40:51.951   04/20/22
+//after 15 set za sb mfc 0 // 11:40:51.951   04/20/22
+ // 11:40:51.952   04/20/22
+//after 15 set main ld enable true      // turn on main pump lasers // 11:40:51.953   04/20/22
+//after 15 set main ld current 0 // 11:40:51.953   04/20/22
+//after 15 set dtm dither // 11:40:51.954   04/20/22
+//after 60 set pfind true		// start locating peak // 11:40:51.955   04/20/22
+//after 65 set peak locate true // 11:40:51.956   04/20/22
+ // 11:40:51.956   04/20/22
+//after 70 set runningring true		// start normal measurement/cal cycle // 11:40:51.957   04/20/22
+set cal so2 mfc 5 // 11:41:01.944   04/20/22
+set cal za mfc 50 // 11:41:01.945   04/20/22
+set inlet za mfc 0 // 11:41:01.946   04/20/22
+set za sb mfc 0 // 11:41:01.946   04/20/22
+set ref so2 mfc 0 // 11:41:01.947   04/20/22
+set ref za mfc 0 // 11:41:01.947   04/20/22
+set cal sb vl off // 11:41:01.948   04/20/22
+set ref sol true // 11:41:01.948   04/20/22
+ // 11:41:04.779   04/20/22
+ // 11:41:12.914   04/20/22
+ // 11:42:06.439   04/20/22
+ // 11:42:11.206   04/20/22
