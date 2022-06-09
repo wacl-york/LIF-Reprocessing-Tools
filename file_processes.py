@@ -1,3 +1,4 @@
+import os
 from os import listdir
 from os.path import isfile, join
 import pandas as pd
@@ -100,6 +101,18 @@ def calc_SO2_mix_r(binary_data_dict, log_start_datetime, sensitivity=1, bckgrnd=
     group_avg = int((1 / data_freq) * 10)
     skip_set = (100 * group_avg) - 100  # skip_set = 100 yields 5 Hz data
 
+    dir_path = os.path.dirname(__file__)
+
+    path = r'{}/processed data'.format(dir_path)
+    try:
+        os.makedirs(path)
+    except OSError:
+        pass
+
+    binary_file = open('processed data/SO2_processed_data.txt', 'w+')
+
+    binary_file.write('time_ms,SO2_pptv,counts\n')
+
     for i in range(len(binary_data_dict['time_ms']) - ((10 * group_avg) + 1)):
 
         if binary_data_dict['seed_LD_mode'][i] == 5:
@@ -116,7 +129,6 @@ def calc_SO2_mix_r(binary_data_dict, log_start_datetime, sensitivity=1, bckgrnd=
 
         if binary_data_dict['seed_LD_mode'][i] == 6 and binary_data_dict['seed_LD_mode'][i + 1] == 5:
             if binary_data_dict['time_ms'][i] - time_SO2_binary_data[-1] != skip_set:
-                print('time', binary_data_dict['time_ms'][i])
                 time_SO2_binary_data.append(binary_data_dict['time_ms'][i])
 
                 return_data_dict['Time_ms'] = return_data_dict['Time_ms'] + \
@@ -129,16 +141,19 @@ def calc_SO2_mix_r(binary_data_dict, log_start_datetime, sensitivity=1, bckgrnd=
                 off_cts = []
                 for j in range(group_avg):
                     off_cts.append(binary_data_dict['sig_counts_norm'][i + 1 - (j * 10): i + 3 - (j * 10)])
-                print('online counts', np.mean(on_cts), on_cts)
-                print('offline counts', np.mean(off_cts), off_cts)
 
                 set_len = (group_avg * len(on_cts[0])) + (group_avg * len(off_cts[0]))
 
-                SO2_mr.append(
-                    ((((np.mean(on_cts) - np.mean(off_cts)) * set_len) - (bckgrnd / data_freq))
-                     / (sensitivity * (((1 / data_freq) * 1000) / 1000))))
+                mix_r = ((((np.mean(on_cts) - np.mean(off_cts)) * set_len) - (bckgrnd / data_freq))
+                         / (sensitivity * (((1 / data_freq) * 1000) / 1000)))
+                cts = (np.mean(on_cts) - np.mean(off_cts)) * set_len * data_freq
 
-                cts_diff.append((np.mean(on_cts) - np.mean(off_cts)) * set_len * data_freq)
+                SO2_mr.append(mix_r)
+                cts_diff.append(cts)
+
+                binary_file.write(str(binary_data_dict['time_ms'][i]) + ',')
+                binary_file.write(str(mix_r) + ',')
+                binary_file.write(str(cts) + '\n')
 
     return_data_dict['SO2_mr'] = SO2_mr
     return_data_dict['Cts_diff'] = cts_diff
