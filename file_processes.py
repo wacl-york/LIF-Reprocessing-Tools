@@ -100,8 +100,7 @@ def calc_SO2_mix_r(binary_data_dict, log_start_datetime, sensitivity=1, bckgrnd=
     group_avg = int((1 / data_freq) * 10)
     skip_set = (100 * group_avg) - 100  # skip_set = 100 yields 5 Hz data
 
-    for i in range(len(binary_data_dict['time_ms']) - (10 * group_avg) + 1):
-        print(binary_data_dict['time_ms'][i])
+    for i in range(len(binary_data_dict['time_ms']) - ((10 * group_avg) + 1)):
 
         if binary_data_dict['seed_LD_mode'][i] == 5:
             time_off.append(binary_data_dict['time_ms'][i] + (epoch_time * 1000))
@@ -117,6 +116,7 @@ def calc_SO2_mix_r(binary_data_dict, log_start_datetime, sensitivity=1, bckgrnd=
 
         if binary_data_dict['seed_LD_mode'][i] == 6 and binary_data_dict['seed_LD_mode'][i + 1] == 5:
             if binary_data_dict['time_ms'][i] - time_SO2_binary_data[-1] != skip_set:
+                print('time', binary_data_dict['time_ms'][i])
                 time_SO2_binary_data.append(binary_data_dict['time_ms'][i])
 
                 return_data_dict['Time_ms'] = return_data_dict['Time_ms'] + \
@@ -129,6 +129,8 @@ def calc_SO2_mix_r(binary_data_dict, log_start_datetime, sensitivity=1, bckgrnd=
                 off_cts = []
                 for j in range(group_avg):
                     off_cts.append(binary_data_dict['sig_counts_norm'][i + 1 - (j * 10): i + 3 - (j * 10)])
+                print('online counts', np.mean(on_cts), on_cts)
+                print('offline counts', np.mean(off_cts), off_cts)
 
                 set_len = (group_avg * len(on_cts[0])) + (group_avg * len(off_cts[0]))
 
