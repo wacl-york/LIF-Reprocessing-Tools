@@ -101,6 +101,7 @@ def calc_SO2_mix_r(binary_data_dict, log_start_datetime, sensitivity=1, bckgrnd=
     skip_set = (100 * group_avg) - 100  # skip_set = 100 yields 5 Hz data
 
     for i in range(len(binary_data_dict['time_ms']) - (10 * group_avg) + 1):
+        print(binary_data_dict['time_ms'][i])
 
         if binary_data_dict['seed_LD_mode'][i] == 5:
             time_off.append(binary_data_dict['time_ms'][i] + (epoch_time * 1000))
@@ -113,31 +114,29 @@ def calc_SO2_mix_r(binary_data_dict, log_start_datetime, sensitivity=1, bckgrnd=
             on_counts_norm.append(binary_data_dict['sig_counts_norm'][i])
             on_counts.append(binary_data_dict['sig_counts'][i])
             laser_pwr_on.append(binary_data_dict['laser_pwr_PT0'][i])
-        try:
-            if binary_data_dict['seed_LD_mode'][i] == 6 and binary_data_dict['seed_LD_mode'][i + 1] == 5:
-                if binary_data_dict['time_ms'][i] - time_SO2_binary_data[-1] != skip_set:
-                    time_SO2_binary_data.append(binary_data_dict['time_ms'][i])
 
-                    return_data_dict['Time_ms'] = return_data_dict['Time_ms'] + \
-                                                  [binary_data_dict['time_ms'][i] + (epoch_time * 1000)]
+        if binary_data_dict['seed_LD_mode'][i] == 6 and binary_data_dict['seed_LD_mode'][i + 1] == 5:
+            if binary_data_dict['time_ms'][i] - time_SO2_binary_data[-1] != skip_set:
+                time_SO2_binary_data.append(binary_data_dict['time_ms'][i])
 
-                    on_cts = []
-                    for j in range(group_avg):
-                        on_cts.append(binary_data_dict['sig_counts_norm'][i - 7 - (j * 10): i + 1 - (j * 10)])
+                return_data_dict['Time_ms'] = return_data_dict['Time_ms'] + \
+                                              [binary_data_dict['time_ms'][i] + (epoch_time * 1000)]
 
-                    off_cts = []
-                    for j in range(group_avg):
-                        off_cts.append(binary_data_dict['sig_counts_norm'][i + 1 - (j * 10): i + 3 - (j * 10)])
+                on_cts = []
+                for j in range(group_avg):
+                    on_cts.append(binary_data_dict['sig_counts_norm'][i - 7 - (j * 10): i + 1 - (j * 10)])
 
-                    set_len = (group_avg * len(on_cts[0])) + (group_avg * len(off_cts[0]))
+                off_cts = []
+                for j in range(group_avg):
+                    off_cts.append(binary_data_dict['sig_counts_norm'][i + 1 - (j * 10): i + 3 - (j * 10)])
 
-                    SO2_mr.append(
-                        ((((np.mean(on_cts) - np.mean(off_cts)) * set_len) - (bckgrnd / data_freq))
-                         / (sensitivity * (((1 / data_freq) * 1000) / 1000))))
+                set_len = (group_avg * len(on_cts[0])) + (group_avg * len(off_cts[0]))
 
-                    cts_diff.append((np.mean(on_cts) - np.mean(off_cts)) * set_len * data_freq)
-        except:
-            continue
+                SO2_mr.append(
+                    ((((np.mean(on_cts) - np.mean(off_cts)) * set_len) - (bckgrnd / data_freq))
+                     / (sensitivity * (((1 / data_freq) * 1000) / 1000))))
+
+                cts_diff.append((np.mean(on_cts) - np.mean(off_cts)) * set_len * data_freq)
 
     return_data_dict['SO2_mr'] = SO2_mr
     return_data_dict['Cts_diff'] = cts_diff
