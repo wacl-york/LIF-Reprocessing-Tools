@@ -164,4 +164,21 @@ def calc_SO2_mix_r(binary_data_dict, log_start_datetime, sensitivity=1, bckgrnd=
     return_data_dict['On_cts_norm'] = on_counts_norm
     return_data_dict['On_lsr_power_V'] = laser_pwr_on
 
+    if save_data:
+        dir_path = os.path.dirname(__file__)
+
+        path = r'{}/processed data'.format(dir_path)
+        try:
+            os.makedirs(path)
+        except OSError:
+            pass
+
+        binary_file = open('processed data/SO2_processed_data.txt', 'w+')
+
+        binary_file.write('time_ms,SO2_pptv\n')
+
+        for i in range(len(return_data_dict['SO2_mr'])):
+            binary_file.write(str(return_data_dict['Time_ms'][i]) + ',')
+            binary_file.write(str(return_data_dict['SO2_mr'][i]) + '\n')
+
     return return_data_dict

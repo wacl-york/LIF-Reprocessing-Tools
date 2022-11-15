@@ -1,6 +1,6 @@
-from datetime import datetime as dt
 import numpy as np
 import math
+from datetime import datetime as dt
 
 
 def time_average(time_array, data_array, current_rate_Hz, desired_rate_Hz):
@@ -33,7 +33,7 @@ def find_min_ind(target, array):
     return diff_arr.index(np.min(diff_arr))
 
 
-def index_timestamp(time_string, time_array):
+def index_timestamp_1904(time_string, time_array):
     time_float = dt.timestamp(dt.strptime(time_string, '%d/%m/%Y %H:%M:%S'))
 
     epoch_dif = (dt.strptime('01/01/1970', '%d/%m/%Y') - dt.strptime('01/01/1904', '%d/%m/%Y')).total_seconds()
