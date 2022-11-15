@@ -70,7 +70,8 @@ def import_binary_LIF_cts(file_path, skip_start=0, skip_end=0, dtype='>i2'):
     return binary_data
 
 
-def calc_SO2_mix_r(binary_data_dict, log_start_datetime, sensitivity=1, bckgrnd=0, data_freq=10, return_headers='All'):
+def calc_SO2_mix_r(binary_data_dict, log_start_datetime, sensitivity=1, bckgrnd=0, data_freq=10, return_headers='All'
+                   , save_data=True):
     epoch_time = (dt.strptime(log_start_datetime, '%d/%m/%Y %H:%M:%S') - dt.strptime('01/01/1904',
                                                                                      '%d/%m/%Y')).total_seconds()
     # epoch time is the number of seconds between 01/01/1904 and the log_start_time
@@ -164,7 +165,7 @@ def calc_SO2_mix_r(binary_data_dict, log_start_datetime, sensitivity=1, bckgrnd=
     return_data_dict['On_cts_norm'] = on_counts_norm
     return_data_dict['On_lsr_power_V'] = laser_pwr_on
 
-    if save_data:
+    if save_data == True:
         dir_path = os.path.dirname(__file__)
 
         path = r'{}/processed data'.format(dir_path)
@@ -175,10 +176,14 @@ def calc_SO2_mix_r(binary_data_dict, log_start_datetime, sensitivity=1, bckgrnd=
 
         binary_file = open('processed data/SO2_processed_data.txt', 'w+')
 
-        binary_file.write('time_ms,SO2_pptv\n')
+        binary_file.write('time_ms,SO2_pptv,on_cts_norm,off_cts_norm,off_lsr_pwr_V,off_lsr_pwr_V\n')
 
         for i in range(len(return_data_dict['SO2_mr'])):
             binary_file.write(str(return_data_dict['Time_ms'][i]) + ',')
-            binary_file.write(str(return_data_dict['SO2_mr'][i]) + '\n')
+            binary_file.write(str(return_data_dict['SO2_mr'][i]) + ',')
+            binary_file.write(str(return_data_dict['Off_cts_norm'][i]) + ',')
+            binary_file.write(str(return_data_dict['On_cts_norm'][i]) + ',')
+            binary_file.write(str(return_data_dict['Off_lsr_power_V'][i]) + ',')
+            binary_file.write(str(return_data_dict['On_lsr_power_V'][i]) + '\n')
 
     return return_data_dict

@@ -4,7 +4,7 @@ from datetime import datetime as dt
 import datetime
 from matplotlib.lines import Line2D
 
-from time_stamps import index_timestamp
+from time_stamps import index_timestamp_1904
 
 from file_processes import import_HK_data
 from file_processes import import_binary_LIF_cts
@@ -21,10 +21,10 @@ binary_data = import_binary_LIF_cts('Binary data', skip_start=5)
 log_datetime_str = '20/04/2022 15:26:36'
 SO2_LOD = 300
 
-reprocess_binary_data = calc_SO2_mix_r(binary_data, log_datetime_str, sensitivity=0.6, data_freq=1)
+reprocess_binary_data = calc_SO2_mix_r(binary_data, log_datetime_str, sensitivity=0.6, data_freq=1, bckgrnd=0)
 
-start_cal_ind = index_timestamp('20/04/2022 17:00:00', np.array(reprocess_binary_data['Time_ms']) / 1000)
-end_cal_ind = index_timestamp('20/04/2022 17:13:00', np.array(reprocess_binary_data['Time_ms']) / 1000)
+start_cal_ind = index_timestamp_1904('20/04/2022 17:00:00', np.array(reprocess_binary_data['Time_ms']) / 1000)
+end_cal_ind = index_timestamp_1904('20/04/2022 17:13:00', np.array(reprocess_binary_data['Time_ms']) / 1000)
 
 plt.title('Example Calibration (1 Hz Data)')
 plt.plot(reprocess_binary_data['Time_ms'][start_cal_ind: end_cal_ind]
