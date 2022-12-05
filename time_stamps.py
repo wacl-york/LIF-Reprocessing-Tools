@@ -3,6 +3,15 @@ import math
 from datetime import datetime as dt
 
 
+def convert_time(time_arr, curr_ref_date, new_ref_date, ref_date_form):
+    curr_date = dt.strptime(curr_ref_date, ref_date_form)
+    new_date = dt.strptime(new_ref_date, ref_date_form)
+
+    delta = (new_date - curr_date).total_seconds()
+
+    return np.array(time_arr) - delta
+
+
 def time_average(time_array, data_array, current_rate_Hz, desired_rate_Hz):
 
     if current_rate_Hz < desired_rate_Hz:
