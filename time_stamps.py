@@ -1,6 +1,8 @@
+
 import numpy as np
 import math
 from datetime import datetime as dt
+from gen_processes import find_min_ind
 
 
 def convert_time(time_arr, curr_ref_date, new_ref_date, ref_date_form):
@@ -33,13 +35,6 @@ def time_average(time_array, data_array, current_rate_Hz, desired_rate_Hz):
             new_data_arr.append(np.mean(data_array[index: index + int(current_rate_Hz / desired_rate_Hz)]))
 
         return new_time_arr, new_data_arr, new_array_len
-
-def find_min_ind(target, array):
-    diff_arr = []
-    for i in range(len(array)):
-        diff_arr.append(abs(array[i] - target))
-
-    return diff_arr.index(np.min(diff_arr))
 
 
 def index_timestamp_1904(time_string, time_array):
