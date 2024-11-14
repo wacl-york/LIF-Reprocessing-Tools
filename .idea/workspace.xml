@@ -4,97 +4,111 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="54d62808-dab4-488c-9663-b4b8ae7f941a" name="Changes" comment="initial commit">
-      <change afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/Binary data/LIFCnts_2023112908.txt" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/Binary data/LIFCnts_2023112909.txt" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/Binary data/LIFCnts_2023112910.txt" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/Binary data/LIFCnts_2023112911.txt" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/HK data/LIFHK_2023112918.txt" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/HK data/LIFHK_2023112919.txt" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/HK data/LIFHK_2023112920.txt" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/HK data/LIFHK_2023112921.txt" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/HK data/LIFHK_2023112922.txt" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/HK data/LIFHK_2023112923.txt" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/HK data/LIFHK_2023112924.txt" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/HK data/LIFHK_2023112925.txt" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/HK data/LIFHK_2023112926.txt" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/HK data/LIFHK_2023112927.txt" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/HK data/LIFHK_2023113000.txt" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/HK data/LIFHK_2023113001.txt" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/HK data/LIFHK_2023113002.txt" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/HK data/LIFHK_2023113003.txt" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/HK data/LIFHK_2023113004.txt" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/HK data/LIFHK_2023113005.txt" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/HK data/LIFHK_2023113006.txt" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/HK data/LIFHK_2023113007.txt" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/HK data/LIFHK_2023113008.txt" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/HK data/LIFHK_2023113009.txt" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/HK data/LIFHK_2023113010.txt" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/HK data/LIFHK_2023113011.txt" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/HK data/LIFHK_2023113012.txt" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/HK data/LIFHK_2023113013.txt" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/HK data/LIFHK_2023113014.txt" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/HK data/LIFHK_2023113015.txt" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/HK data/LIFHK_2023113016.txt" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/HK data/LIFHK_2023113017.txt" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/HK data/LIFHK_2023113018.txt" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/HK data/LIFHK_2023113019.txt" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/HK data/LIFHK_2023113020.txt" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/HK data/LIFHK_2023113021.txt" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/HK data/LIFHK_2023113022.txt" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/HK data/LIFHK_2023113023.txt" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/HK data/LIFHK_2023113024.txt" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/HK data/LIFHK_2023113025.txt" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/HK data/LIFHK_2023120100.txt" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/HK data/LIFHK_2023120101.txt" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/HK data/LIFHK_2023120102.txt" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/HK data/LIFHK_2023120103.txt" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/HK data/LIFHK_2023120104.txt" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/HK data/LIFHK_2023120105.txt" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/HK data/LIFHK_2023120106.txt" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/HK data/LIFHK_2023120107.txt" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/HK data/LIFHK_2023120108.txt" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/HK data/LIFHK_2023120109.txt" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/HK data/LIFHK_2023120110.txt" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/HK data/LIFHK_2023120111.txt" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/HK data/LIFHK_2023120112.txt" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/HK data/LIFHK_2023120113.txt" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/HK data/LIFHK_2023120114.txt" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/HK data/LIFHK_2023120115.txt" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/HK data/LIFHK_2023120116.txt" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/HK data/LIFHK_2023120117.txt" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/HK data/LIFHK_2023120118.txt" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/LIFCnts_20220420 5.txt" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/Log files/LIFLog_20231129 0.txt" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/Log files/LIFLog_20231129 1.txt" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/Log files/LIFLog_20231129 2.txt" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/Log files/LIFLog_20231129 3.txt" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/Log files/LIFLog_20231129 4.txt" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/cal_analysis.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/gen_processes.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/main.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/misalligned_files.txt" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/processed data/20220420_LIF_processed_data_00.txt" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/processed data/20220420_LIF_processed_data_01.txt" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/processed data/20220420_LIF_processed_data_02.txt" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/processed data/20220420_LIF_processed_data_03.txt" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/processed data/20220420_LIF_processed_data_04.txt" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/processed data/20231129_LIF_processed_data_00.txt" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/processed data/20231129_LIF_processed_data_01.txt" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/processed data/20231129_LIF_processed_data_02.txt" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/processed data/20231129_LIF_processed_data_03.txt" afterDir="false" />
+    <list default="true" id="db821d4b-0179-4ad1-9a6f-2b862dcf5a86" name="Changes" comment="">
+      <change beforePath="$PROJECT_DIR$/.gitattributes" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/LIF-Reprocessing-Tools.iml" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/inspectionProfiles/Project_Default.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/inspectionProfiles/Project_Default.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/misc.xml" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/modules.xml" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/Binary data/LIFCnts_2023112908.txt" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/Binary data/LIFCnts_2023112909.txt" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/Binary data/LIFCnts_2023112910.txt" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/Binary data/LIFCnts_2023112911.txt" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/Function_examples.py" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/HK data/LIFHK_2023112918.txt" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/HK data/LIFHK_2023112919.txt" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/HK data/LIFHK_2023112920.txt" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/HK data/LIFHK_2023112921.txt" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/HK data/LIFHK_2023112922.txt" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/HK data/LIFHK_2023112923.txt" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/HK data/LIFHK_2023112924.txt" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/HK data/LIFHK_2023112925.txt" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/HK data/LIFHK_2023112926.txt" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/HK data/LIFHK_2023112927.txt" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/HK data/LIFHK_2023113000.txt" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/HK data/LIFHK_2023113001.txt" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/HK data/LIFHK_2023113002.txt" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/HK data/LIFHK_2023113003.txt" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/HK data/LIFHK_2023113004.txt" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/HK data/LIFHK_2023113005.txt" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/HK data/LIFHK_2023113006.txt" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/HK data/LIFHK_2023113007.txt" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/HK data/LIFHK_2023113008.txt" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/HK data/LIFHK_2023113009.txt" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/HK data/LIFHK_2023113010.txt" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/HK data/LIFHK_2023113011.txt" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/HK data/LIFHK_2023113012.txt" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/HK data/LIFHK_2023113013.txt" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/HK data/LIFHK_2023113014.txt" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/HK data/LIFHK_2023113015.txt" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/HK data/LIFHK_2023113016.txt" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/HK data/LIFHK_2023113017.txt" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/HK data/LIFHK_2023113018.txt" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/HK data/LIFHK_2023113019.txt" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/HK data/LIFHK_2023113020.txt" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/HK data/LIFHK_2023113021.txt" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/HK data/LIFHK_2023113022.txt" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/HK data/LIFHK_2023113023.txt" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/HK data/LIFHK_2023113024.txt" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/HK data/LIFHK_2023113025.txt" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/HK data/LIFHK_2023120100.txt" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/HK data/LIFHK_2023120101.txt" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/HK data/LIFHK_2023120102.txt" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/HK data/LIFHK_2023120103.txt" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/HK data/LIFHK_2023120104.txt" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/HK data/LIFHK_2023120105.txt" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/HK data/LIFHK_2023120106.txt" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/HK data/LIFHK_2023120107.txt" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/HK data/LIFHK_2023120108.txt" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/HK data/LIFHK_2023120109.txt" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/HK data/LIFHK_2023120110.txt" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/HK data/LIFHK_2023120111.txt" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/HK data/LIFHK_2023120112.txt" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/HK data/LIFHK_2023120113.txt" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/HK data/LIFHK_2023120114.txt" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/HK data/LIFHK_2023120115.txt" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/HK data/LIFHK_2023120116.txt" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/HK data/LIFHK_2023120117.txt" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/HK data/LIFHK_2023120118.txt" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/LIFCnts_20220420 5.txt" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/LIF_processes.py" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/Log files/LIFLog_20231129 0.txt" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/Log files/LIFLog_20231129 1.txt" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/Log files/LIFLog_20231129 2.txt" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/Log files/LIFLog_20231129 3.txt" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/Log files/LIFLog_20231129 4.txt" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/cal_analysis.py" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/gen_processes.py" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/main.py" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/misalligned_files.txt" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/processed data/20220420_LIF_processed_data_00.txt" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/processed data/20220420_LIF_processed_data_01.txt" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/processed data/20220420_LIF_processed_data_02.txt" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/processed data/20220420_LIF_processed_data_03.txt" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/processed data/20220420_LIF_processed_data_04.txt" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/processed data/20231129_LIF_processed_data_00.txt" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/processed data/20231129_LIF_processed_data_01.txt" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/processed data/20231129_LIF_processed_data_02.txt" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/processed data/20231129_LIF_processed_data_03.txt" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/time_stamps.py" beforeDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
     <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
     <option name="LAST_RESOLUTION" value="IGNORE" />
   </component>
+  <component name="FileTemplateManagerImpl">
+    <option name="RECENT_TEMPLATES">
+      <list>
+        <option value="Python Script" />
+      </list>
+    </option>
+  </component>
   <component name="Git.Settings">
     <option name="RECENT_GIT_ROOT_PATH" value="$PROJECT_DIR$" />
   </component>
-  <component name="ProjectId" id="2ZWsggRrAE3nCjfNsBZzyo4ukHV" />
-  <component name="ProjectLevelVcsManager" settingsEditedManually="true" />
+  <component name="ProjectId" id="2kh0n608DFMW769saVkcyw0fMho" />
   <component name="ProjectViewState">
     <option name="hideEmptyMiddlePackages" value="true" />
     <option name="showLibraryContents" value="true" />
@@ -107,10 +121,33 @@
     <property name="node.js.detected.package.tslint" value="true" />
     <property name="node.js.selected.package.eslint" value="(autodetect)" />
     <property name="node.js.selected.package.tslint" value="(autodetect)" />
+    <property name="settings.editor.selected.configurable" value="preferences.keymap" />
   </component>
-  <component name="RunManager">
-    <configuration name="Function_examples" type="PythonConfigurationType" factoryName="Python" temporary="true" nameIsGenerated="true">
-      <module name="LIF-Reprocessing-Tools" />
+  <component name="RunManager" selected="Python.reprocessing (1)">
+    <configuration name="HONO_lod" type="PythonConfigurationType" factoryName="Python" temporary="true" nameIsGenerated="true">
+      <module name="2024_08_15" />
+      <option name="INTERPRETER_OPTIONS" value="" />
+      <option name="PARENT_ENVS" value="true" />
+      <envs>
+        <env name="PYTHONUNBUFFERED" value="1" />
+      </envs>
+      <option name="SDK_HOME" value="" />
+      <option name="WORKING_DIRECTORY" value="$PROJECT_DIR$/../../HONO_NO2_LOD" />
+      <option name="IS_MODULE_SDK" value="false" />
+      <option name="ADD_CONTENT_ROOTS" value="true" />
+      <option name="ADD_SOURCE_ROOTS" value="true" />
+      <EXTENSION ID="PythonCoverageRunConfigurationExtension" runner="coverage.py" />
+      <option name="SCRIPT_NAME" value="$PROJECT_DIR$/../../HONO_NO2_LOD/HONO_lod.py" />
+      <option name="PARAMETERS" value="" />
+      <option name="SHOW_COMMAND_LINE" value="false" />
+      <option name="EMULATE_TERMINAL" value="false" />
+      <option name="MODULE_MODE" value="false" />
+      <option name="REDIRECT_INPUT" value="false" />
+      <option name="INPUT_FILE" value="" />
+      <method v="2" />
+    </configuration>
+    <configuration name="LifPy" type="PythonConfigurationType" factoryName="Python" nameIsGenerated="true">
+      <module name="2024_08_15" />
       <option name="INTERPRETER_OPTIONS" value="" />
       <option name="PARENT_ENVS" value="true" />
       <envs>
@@ -122,7 +159,95 @@
       <option name="ADD_CONTENT_ROOTS" value="true" />
       <option name="ADD_SOURCE_ROOTS" value="true" />
       <EXTENSION ID="PythonCoverageRunConfigurationExtension" runner="coverage.py" />
-      <option name="SCRIPT_NAME" value="$PROJECT_DIR$/Function_examples.py" />
+      <option name="SCRIPT_NAME" value="C:\Users\Jake\Documents\GitHub\LIF-Reprocessing-Tools\LifPy.py" />
+      <option name="PARAMETERS" value="" />
+      <option name="SHOW_COMMAND_LINE" value="false" />
+      <option name="EMULATE_TERMINAL" value="false" />
+      <option name="MODULE_MODE" value="false" />
+      <option name="REDIRECT_INPUT" value="false" />
+      <option name="INPUT_FILE" value="" />
+      <method v="2" />
+    </configuration>
+    <configuration name="comparison" type="PythonConfigurationType" factoryName="Python" temporary="true" nameIsGenerated="true">
+      <module name="2024_08_15" />
+      <option name="INTERPRETER_OPTIONS" value="" />
+      <option name="PARENT_ENVS" value="true" />
+      <envs>
+        <env name="PYTHONUNBUFFERED" value="1" />
+      </envs>
+      <option name="SDK_HOME" value="" />
+      <option name="WORKING_DIRECTORY" value="$PROJECT_DIR$" />
+      <option name="IS_MODULE_SDK" value="true" />
+      <option name="ADD_CONTENT_ROOTS" value="true" />
+      <option name="ADD_SOURCE_ROOTS" value="true" />
+      <EXTENSION ID="PythonCoverageRunConfigurationExtension" runner="coverage.py" />
+      <option name="SCRIPT_NAME" value="$PROJECT_DIR$/comparison.py" />
+      <option name="PARAMETERS" value="" />
+      <option name="SHOW_COMMAND_LINE" value="false" />
+      <option name="EMULATE_TERMINAL" value="false" />
+      <option name="MODULE_MODE" value="false" />
+      <option name="REDIRECT_INPUT" value="false" />
+      <option name="INPUT_FILE" value="" />
+      <method v="2" />
+    </configuration>
+    <configuration name="main (1)" type="PythonConfigurationType" factoryName="Python" temporary="true" nameIsGenerated="true">
+      <module name="2024_08_15" />
+      <option name="INTERPRETER_OPTIONS" value="" />
+      <option name="PARENT_ENVS" value="true" />
+      <envs>
+        <env name="PYTHONUNBUFFERED" value="1" />
+      </envs>
+      <option name="SDK_HOME" value="" />
+      <option name="WORKING_DIRECTORY" value="$USER_HOME$/Downloads/wavelength choice-20241001T083011Z-001/wavelength choice" />
+      <option name="IS_MODULE_SDK" value="false" />
+      <option name="ADD_CONTENT_ROOTS" value="true" />
+      <option name="ADD_SOURCE_ROOTS" value="true" />
+      <EXTENSION ID="PythonCoverageRunConfigurationExtension" runner="coverage.py" />
+      <option name="SCRIPT_NAME" value="$USER_HOME$/Downloads/wavelength choice-20241001T083011Z-001/wavelength choice/main.py" />
+      <option name="PARAMETERS" value="" />
+      <option name="SHOW_COMMAND_LINE" value="false" />
+      <option name="EMULATE_TERMINAL" value="false" />
+      <option name="MODULE_MODE" value="false" />
+      <option name="REDIRECT_INPUT" value="false" />
+      <option name="INPUT_FILE" value="" />
+      <method v="2" />
+    </configuration>
+    <configuration name="reprocessing (1)" type="PythonConfigurationType" factoryName="Python" temporary="true" nameIsGenerated="true">
+      <module name="2024_08_15" />
+      <option name="INTERPRETER_OPTIONS" value="" />
+      <option name="PARENT_ENVS" value="true" />
+      <envs>
+        <env name="PYTHONUNBUFFERED" value="1" />
+      </envs>
+      <option name="SDK_HOME" value="" />
+      <option name="WORKING_DIRECTORY" value="$PROJECT_DIR$/../test_LifPy" />
+      <option name="IS_MODULE_SDK" value="false" />
+      <option name="ADD_CONTENT_ROOTS" value="true" />
+      <option name="ADD_SOURCE_ROOTS" value="true" />
+      <EXTENSION ID="PythonCoverageRunConfigurationExtension" runner="coverage.py" />
+      <option name="SCRIPT_NAME" value="$PROJECT_DIR$/../test_LifPy/reprocessing.py" />
+      <option name="PARAMETERS" value="" />
+      <option name="SHOW_COMMAND_LINE" value="false" />
+      <option name="EMULATE_TERMINAL" value="false" />
+      <option name="MODULE_MODE" value="false" />
+      <option name="REDIRECT_INPUT" value="false" />
+      <option name="INPUT_FILE" value="" />
+      <method v="2" />
+    </configuration>
+    <configuration name="reprocessing" type="PythonConfigurationType" factoryName="Python" temporary="true" nameIsGenerated="true">
+      <module name="2024_08_15" />
+      <option name="INTERPRETER_OPTIONS" value="" />
+      <option name="PARENT_ENVS" value="true" />
+      <envs>
+        <env name="PYTHONUNBUFFERED" value="1" />
+      </envs>
+      <option name="SDK_HOME" value="" />
+      <option name="WORKING_DIRECTORY" value="$PROJECT_DIR$" />
+      <option name="IS_MODULE_SDK" value="true" />
+      <option name="ADD_CONTENT_ROOTS" value="true" />
+      <option name="ADD_SOURCE_ROOTS" value="true" />
+      <EXTENSION ID="PythonCoverageRunConfigurationExtension" runner="coverage.py" />
+      <option name="SCRIPT_NAME" value="$PROJECT_DIR$/reprocessing.py" />
       <option name="PARAMETERS" value="" />
       <option name="SHOW_COMMAND_LINE" value="false" />
       <option name="EMULATE_TERMINAL" value="false" />
@@ -133,28 +258,95 @@
     </configuration>
     <recent_temporary>
       <list>
-        <item itemvalue="Python.Function_examples" />
+        <item itemvalue="Python.reprocessing (1)" />
+        <item itemvalue="Python.reprocessing" />
+        <item itemvalue="Python.comparison" />
+        <item itemvalue="Python.main (1)" />
+        <item itemvalue="Python.HONO_lod" />
       </list>
     </recent_temporary>
   </component>
   <component name="SpellCheckerSettings" RuntimeDictionaries="0" Folders="0" CustomDictionaries="0" DefaultDictionary="application-level" UseSingleDictionary="true" transferred="true" />
   <component name="TaskManager">
     <task active="true" id="Default" summary="Default task">
-      <changelist id="54d62808-dab4-488c-9663-b4b8ae7f941a" name="Changes" comment="" />
-      <created>1702549287839</created>
+      <changelist id="db821d4b-0179-4ad1-9a6f-2b862dcf5a86" name="Changes" comment="" />
+      <created>1723720667923</created>
       <option name="number" value="Default" />
       <option name="presentableId" value="Default" />
-      <updated>1702549287839</updated>
-      <workItem from="1702549290427" duration="4936000" />
+      <updated>1723720667923</updated>
+      <workItem from="1723720669606" duration="899000" />
+      <workItem from="1723804322519" duration="745000" />
+      <workItem from="1723825328611" duration="4063000" />
+      <workItem from="1723844852315" duration="2822000" />
+      <workItem from="1723886813591" duration="1908000" />
+      <workItem from="1723913329933" duration="9187000" />
+      <workItem from="1723973631052" duration="3131000" />
+      <workItem from="1723976806535" duration="935000" />
+      <workItem from="1724003571927" duration="6695000" />
+      <workItem from="1724067168636" duration="9656000" />
+      <workItem from="1724098619084" duration="3436000" />
+      <workItem from="1724136135191" duration="4296000" />
+      <workItem from="1724186478310" duration="4450000" />
+      <workItem from="1724235385486" duration="1205000" />
+      <workItem from="1724245395580" duration="2771000" />
+      <workItem from="1724341180937" duration="1643000" />
+      <workItem from="1724421006784" duration="3812000" />
+      <workItem from="1724430983995" duration="3046000" />
+      <workItem from="1724435473558" duration="1285000" />
+      <workItem from="1724583160860" duration="68000" />
+      <workItem from="1725293003281" duration="4578000" />
+      <workItem from="1725298692526" duration="56000" />
+      <workItem from="1725298757752" duration="2897000" />
+      <workItem from="1725313460142" duration="2546000" />
+      <workItem from="1725351777177" duration="3512000" />
+      <workItem from="1725356561330" duration="65000" />
+      <workItem from="1725356636506" duration="9527000" />
+      <workItem from="1725531917683" duration="12355000" />
+      <workItem from="1725565699393" duration="4560000" />
+      <workItem from="1725573458914" duration="63000" />
+      <workItem from="1725573531637" duration="3262000" />
+      <workItem from="1725632045433" duration="681000" />
+      <workItem from="1725830473452" duration="5719000" />
+      <workItem from="1726496171949" duration="3344000" />
+      <workItem from="1726502215224" duration="5252000" />
+      <workItem from="1726513079610" duration="4048000" />
+      <workItem from="1726581476723" duration="1496000" />
+      <workItem from="1726599255282" duration="2012000" />
+      <workItem from="1726601623626" duration="5393000" />
+      <workItem from="1726648702306" duration="1454000" />
+      <workItem from="1726659615867" duration="7255000" />
+      <workItem from="1726687338816" duration="1693000" />
+      <workItem from="1726694127232" duration="2574000" />
+      <workItem from="1726733029251" duration="10029000" />
+      <workItem from="1726939296943" duration="2416000" />
+      <workItem from="1727002518684" duration="2718000" />
+      <workItem from="1727020356917" duration="3887000" />
+      <workItem from="1727087964879" duration="2331000" />
+      <workItem from="1727099876609" duration="7947000" />
+      <workItem from="1727124958901" duration="2948000" />
+      <workItem from="1727169514871" duration="6322000" />
+      <workItem from="1727202329068" duration="5814000" />
+      <workItem from="1727212423030" duration="664000" />
+      <workItem from="1727427215979" duration="6478000" />
+      <workItem from="1727461415767" duration="4304000" />
+      <workItem from="1727471642139" duration="3284000" />
+      <workItem from="1727643335867" duration="719000" />
+      <workItem from="1727685553651" duration="638000" />
+      <workItem from="1727686537729" duration="6238000" />
+      <workItem from="1727810919536" duration="3766000" />
+      <workItem from="1727861397736" duration="10475000" />
+      <workItem from="1728048175609" duration="5523000" />
+      <workItem from="1728135783356" duration="4804000" />
+      <workItem from="1729514292219" duration="725000" />
+      <workItem from="1730286353514" duration="7159000" />
+      <workItem from="1731491077721" duration="8580000" />
+      <workItem from="1731520946490" duration="2933000" />
+      <workItem from="1731528672620" duration="8469000" />
+      <workItem from="1731579124582" duration="303000" />
+      <workItem from="1731579460376" duration="9000" />
+      <workItem from="1731579499147" duration="128000" />
+      <workItem from="1731579685725" duration="1211000" />
     </task>
-    <task id="LOCAL-00001" summary="initial commit">
-      <created>1702554541602</created>
-      <option name="number" value="00001" />
-      <option name="presentableId" value="LOCAL-00001" />
-      <option name="project" value="LOCAL" />
-      <updated>1702554541602</updated>
-    </task>
-    <option name="localTasksCounter" value="2" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">
@@ -170,12 +362,74 @@
         </entry>
       </map>
     </option>
-  </component>
-  <component name="VcsManagerConfiguration">
-    <MESSAGE value="initial commit" />
-    <option name="LAST_COMMIT_MESSAGE" value="initial commit" />
+    <option name="oldMeFiltersMigrated" value="true" />
   </component>
   <component name="com.intellij.coverage.CoverageDataManagerImpl">
-    <SUITE FILE_PATH="coverage/LIF_Reprocessing_Tools$Function_examples.coverage" NAME="Function_examples Coverage Results" MODIFIED="1702554286499" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="true" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
+    <SUITE FILE_PATH="coverage/2024_09_21_calibration$calibration_plots.coverage" NAME="calibration_plots Coverage Results" MODIFIED="1727030050924" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="true" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
+    <SUITE FILE_PATH="coverage/ini_comp_2024_10_28$main__1_.coverage" NAME="main (1) Coverage Results" MODIFIED="1730299117213" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="true" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$USER_HOME$/Downloads/wavelength choice-20241001T083011Z-001/wavelength choice" />
+    <SUITE FILE_PATH="coverage/LIF_Reprocessing_Tools$reprocessing__1_.coverage" NAME="reprocessing (1) Coverage Results" MODIFIED="1731541645792" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="true" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/../test_LifPy" />
+    <SUITE FILE_PATH="coverage/2024_09_24_cal$kintecus_plotter.coverage" NAME="kintecus_plotter Coverage Results" MODIFIED="1727449334804" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="true" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
+    <SUITE FILE_PATH="coverage/2024_08_19$reprocessing.coverage" NAME="reprocessing Coverage Results" MODIFIED="1724172376604" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="true" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
+    <SUITE FILE_PATH="coverage/2024_08_23$reprocessing.coverage" NAME="reprocessing Coverage Results" MODIFIED="1724433177583" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="true" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
+    <SUITE FILE_PATH="coverage/2024_08_14$mix_ratio_converter.coverage" NAME="mix_ratio_converter Coverage Results" MODIFIED="1724017280098" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="true" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
+    <SUITE FILE_PATH="coverage/2024_09_26_NO2_cal$pepper_flux__2_.coverage" NAME="pepper_flux (2) Coverage Results" MODIFIED="1727691163259" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="true" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/../2024_09_23_chickpea" />
+    <SUITE FILE_PATH="coverage/2024_10_04_HONO_cal$reprocessing.coverage" NAME="reprocessing Coverage Results" MODIFIED="1728135853997" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="true" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
+    <SUITE FILE_PATH="coverage/2024_08_14$calibration_plots.coverage" NAME="calibration_plots Coverage Results" MODIFIED="1723828280113" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="true" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
+    <SUITE FILE_PATH="coverage/2024_09_18_lightvsdark$flux_ini_look.coverage" NAME="flux_ini_look Coverage Results" MODIFIED="1726762796943" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="true" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
+    <SUITE FILE_PATH="coverage/2024_10_01_overnight_NO_cal$reprocessing.coverage" NAME="reprocessing Coverage Results" MODIFIED="1727861629961" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="true" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
+    <SUITE FILE_PATH="coverage/2024_10_04_HONO_cal$kintecus_plotter__1_.coverage" NAME="kintecus_plotter (1) Coverage Results" MODIFIED="1728052170583" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="true" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
+    <SUITE FILE_PATH="coverage/2024_08_14$flux_cal_1sccm__1_.coverage" NAME="flux_cal_1sccm (1) Coverage Results" MODIFIED="1724008654524" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="true" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/../../legacy/2024_08_07_flux_cal_cyl" />
+    <SUITE FILE_PATH="coverage/2024_09_18_T3_pepper$pepper_flux.coverage" NAME="pepper_flux Coverage Results" MODIFIED="1726671957875" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="true" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
+    <SUITE FILE_PATH="coverage/2024_08_30_better_converter$chamber_flux__1_.coverage" NAME="chamber_flux (1) Coverage Results" MODIFIED="1725841758849" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="true" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
+    <SUITE FILE_PATH="coverage/2024_10_01_overnight_NO_cal$calibration_plots.coverage" NAME="calibration_plots Coverage Results" MODIFIED="1727864744660" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="true" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
+    <SUITE FILE_PATH="coverage/2024_10_04_HONO_cal$kintecus_plotter.coverage" NAME="kintecus_plotter Coverage Results" MODIFIED="1728049560776" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="true" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/../2024_10_01_NO2_cal" />
+    <SUITE FILE_PATH="coverage/2024_10_01_overnight_NO_cal$kintecus_plotter.coverage" NAME="kintecus_plotter Coverage Results" MODIFIED="1727880201573" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="true" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
+    <SUITE FILE_PATH="coverage/2024_08_30_better_converter$blank.coverage" NAME="blank Coverage Results" MODIFIED="1726504841716" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="true" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
+    <SUITE FILE_PATH="coverage/2024_09_17_background_humid_chamber$chamber_flux__1_.coverage" NAME="chamber_flux (1) Coverage Results" MODIFIED="1726648880298" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="true" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
+    <SUITE FILE_PATH="coverage/2024_09_23_chickpea$pepper_flux.coverage" NAME="pepper_flux Coverage Results" MODIFIED="1727201349251" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="true" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
+    <SUITE FILE_PATH="coverage/2024_10_04_HONO_cal$pepper_flux.coverage" NAME="pepper_flux Coverage Results" MODIFIED="1728144358324" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="true" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
+    <SUITE FILE_PATH="coverage/2024_09_27_NO2_cal$mix_ratio_converter.coverage" NAME="mix_ratio_converter Coverage Results" MODIFIED="1727471851990" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="true" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
+    <SUITE FILE_PATH="coverage/2024_08_14$reprocessing.coverage" NAME="reprocessing Coverage Results" MODIFIED="1723828686512" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="true" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
+    <SUITE FILE_PATH="coverage/2024_09_27_NO2_cal$reprocessing.coverage" NAME="reprocessing Coverage Results" MODIFIED="1727685569664" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="true" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
+    <SUITE FILE_PATH="coverage/ini_comp_2024_10_28$HONO_lod.coverage" NAME="HONO_lod Coverage Results" MODIFIED="1730298256988" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="true" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/../../HONO_NO2_LOD" />
+    <SUITE FILE_PATH="coverage/2024_09_17_background_humid_chamber$calibration_plots.coverage" NAME="calibration_plots Coverage Results" MODIFIED="1726600681469" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="true" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
+    <SUITE FILE_PATH="coverage/2024_09_27_NO2_cal$calibration_plots.coverage" NAME="calibration_plots Coverage Results" MODIFIED="1727464936648" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="true" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
+    <SUITE FILE_PATH="coverage/2024_08_30_better_converter$co2_flux_decay.coverage" NAME="co2_flux_decay Coverage Results" MODIFIED="1726502803098" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="true" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/../../legacy/2023_08_08_dilution_check" />
+    <SUITE FILE_PATH="coverage/2024_08_19$co2_flux_decay.coverage" NAME="co2_flux_decay Coverage Results" MODIFIED="1724244361055" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="true" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/../../legacy/2023_08_08_dilution_check" />
+    <SUITE FILE_PATH="coverage/ini_comp_2024_10_28$comparison.coverage" NAME="comparison Coverage Results" MODIFIED="1730302415877" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="true" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
+    <SUITE FILE_PATH="coverage/2024_10_01_NO2_cal$pepper_flux__2_.coverage" NAME="pepper_flux (2) Coverage Results" MODIFIED="1727819148822" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="true" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/../2024_09_23_chickpea" />
+    <SUITE FILE_PATH="coverage/ini_comp_2024_10_16$reprocessing.coverage" NAME="reprocessing Coverage Results" MODIFIED="1729514397937" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="true" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
+    <SUITE FILE_PATH="coverage/2024_08_15$reprocessing.coverage" NAME="reprocessing Coverage Results" MODIFIED="1723804956200" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="true" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
+    <SUITE FILE_PATH="coverage/2024_10_01_overnight_NO_cal$pepper_flux__1_.coverage" NAME="pepper_flux (1) Coverage Results" MODIFIED="1727884306034" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="true" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/../2024_09_23_chickpea" />
+    <SUITE FILE_PATH="coverage/2024_09_26_NO2_cal$pepper_flux.coverage" NAME="pepper_flux Coverage Results" MODIFIED="1727690056630" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="true" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
+    <SUITE FILE_PATH="coverage/2024_08_30_better_converter$pepper_flux.coverage" NAME="pepper_flux Coverage Results" MODIFIED="1726523380638" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="true" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
+    <SUITE FILE_PATH="coverage/2024_08_19$flux_cal_1sccm.coverage" NAME="flux_cal_1sccm Coverage Results" MODIFIED="1724429782280" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="true" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
+    <SUITE FILE_PATH="coverage/2024_08_23$amb_HONO_NO2__1_.coverage" NAME="amb_HONO_NO2 (1) Coverage Results" MODIFIED="1724583193622" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="true" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
+    <SUITE FILE_PATH="coverage/2024_09_27_NO2_cal$kintecus_plotter__1_.coverage" NAME="kintecus_plotter (1) Coverage Results" MODIFIED="1727463149983" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="true" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/../2024_09_23_chickpea" />
+    <SUITE FILE_PATH="coverage/2024_09_24_cal$reprocessing.coverage" NAME="reprocessing Coverage Results" MODIFIED="1727206131082" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="true" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
+    <SUITE FILE_PATH="coverage/2024_09_27_NO2_cal$pepper_flux.coverage" NAME="pepper_flux Coverage Results" MODIFIED="1727643359093" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="true" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
+    <SUITE FILE_PATH="coverage/2024_09_18_lightvsdark$reprocessing.coverage" NAME="reprocessing Coverage Results" MODIFIED="1726687363169" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="true" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
+    <SUITE FILE_PATH="coverage/2024_08_30_better_converter$reprocessing.coverage" NAME="reprocessing Coverage Results" MODIFIED="1725532546459" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="true" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
+    <SUITE FILE_PATH="coverage/2024_10_28_ini_comp$reprocessing.coverage" NAME="reprocessing Coverage Results" MODIFIED="1731511664442" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="true" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
+    <SUITE FILE_PATH="coverage/2024_09_26_NO2_cal$calibration_plots.coverage" NAME="calibration_plots Coverage Results" MODIFIED="1727692579252" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="true" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
+    <SUITE FILE_PATH="coverage/2024_09_24_cal$pepper_flux.coverage" NAME="pepper_flux Coverage Results" MODIFIED="1727443042217" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="true" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
+    <SUITE FILE_PATH="coverage/2024_08_19$calibration_plots.coverage" NAME="calibration_plots Coverage Results" MODIFIED="1724072723194" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="true" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
+    <SUITE FILE_PATH="coverage/2024_10_04_HONO_cal$calibration_plots.coverage" NAME="calibration_plots Coverage Results" MODIFIED="1728048889869" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="true" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/../2024_10_01_NO2_cal" />
+    <SUITE FILE_PATH="coverage/2024_09_21_calibration$reprocessing.coverage" NAME="reprocessing Coverage Results" MODIFIED="1726941123342" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="true" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
+    <SUITE FILE_PATH="coverage/2024_09_17_background_humid_chamber$reprocessing.coverage" NAME="reprocessing Coverage Results" MODIFIED="1726650027197" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="true" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
+    <SUITE FILE_PATH="coverage/2024_08_30_better_converter$calibration_plots.coverage" NAME="calibration_plots Coverage Results" MODIFIED="1725537714403" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="true" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
+    <SUITE FILE_PATH="coverage/2024_09_26_NO2_cal$reprocessing.coverage" NAME="reprocessing Coverage Results" MODIFIED="1727687896589" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="true" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
+    <SUITE FILE_PATH="coverage/2024_09_18_lightvsdark$pepper_flux.coverage" NAME="pepper_flux Coverage Results" MODIFIED="1726749653439" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="true" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
+    <SUITE FILE_PATH="coverage/2024_09_23_chickpea$reprocessing.coverage" NAME="reprocessing Coverage Results" MODIFIED="1727199670577" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="true" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
+    <SUITE FILE_PATH="coverage/2024_10_01_NO2_cal$reprocessing.coverage" NAME="reprocessing Coverage Results" MODIFIED="1727811326332" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="true" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
+    <SUITE FILE_PATH="coverage/2024_10_04_HONO_cal$pepper_flux__2_.coverage" NAME="pepper_flux (2) Coverage Results" MODIFIED="1728049444914" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="true" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/../2024_10_01_NO2_cal" />
+    <SUITE FILE_PATH="coverage/2024_09_26_NO2_cal$pepper_flux__1_.coverage" NAME="pepper_flux (1) Coverage Results" MODIFIED="1727690024592" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="true" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/../2024_09_27_NO2_cal" />
+    <SUITE FILE_PATH="coverage/2024_10_01_overnight_NO_cal$pepper_flux.coverage" NAME="pepper_flux Coverage Results" MODIFIED="1727884805376" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="true" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
+    <SUITE FILE_PATH="coverage/2024_09_18_T3_pepper$reprocessing.coverage" NAME="reprocessing Coverage Results" MODIFIED="1726660231526" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="true" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
+    <SUITE FILE_PATH="coverage/2024_08_23$main__1_.coverage" NAME="main (1) Coverage Results" MODIFIED="1724435598171" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="true" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$USER_HOME$/Downloads/NO2 HONO two channel converter-20240819T204144Z-001/NO2 HONO two channel converter/wavelength choice" />
+    <SUITE FILE_PATH="coverage/2024_10_01_overnight_NO_cal$kintecus_plotter__1_.coverage" NAME="kintecus_plotter (1) Coverage Results" MODIFIED="1727885441398" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="true" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/../2024_09_23_chickpea" />
+    <SUITE FILE_PATH="coverage/2024_09_21_calibration$pepper_flux.coverage" NAME="pepper_flux Coverage Results" MODIFIED="1727088503058" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="true" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
+    <SUITE FILE_PATH="coverage/2024_08_19$main__1_.coverage" NAME="main (1) Coverage Results" MODIFIED="1724136830327" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="true" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$USER_HOME$/Downloads/NO2 HONO two channel converter-20240819T204144Z-001/NO2 HONO two channel converter/wavelength choice" />
+    <SUITE FILE_PATH="coverage/2024_08_14$flux_cal_1sccm.coverage" NAME="flux_cal_1sccm Coverage Results" MODIFIED="1724016321964" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="true" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
   </component>
 </project>

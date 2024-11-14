@@ -1,0 +1,22 @@
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "LifPy"
+version = "0.0.13"
+authors = [
+  { name="Jake Vallow", email="jake.t.vallow@gmail.com" },
+]
+description = "Useful tools for processing LIF data"
+readme = "README.md"
+requires-python = ">=3.10"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Operating System :: Microsoft :: Windows",
+]
+
+[project.urls]
+Homepage = "https://github.com/pypa/sampleproject"
+Issues = "https://github.com/pypa/sampleproject/issues"

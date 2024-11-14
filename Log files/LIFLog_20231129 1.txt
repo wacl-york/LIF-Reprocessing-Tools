@@ -1,3 +1,0 @@
-Log File Created @ 12:55:40.058   11/29/23
-
-Wed, Nov 29, 2023, 12:55:40 PM: EOM_T_ThresholdNo Error

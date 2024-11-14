@@ -1,1 +1,0 @@
-time_s,on_cts_norm,off_cts_norm,cts_norm,off_lsr_pwr_V,on_lsr_pwr_V,off_ref_cts_norm,on_ref_cts_norm,task,cal_no_mfc,cell_flow,seed_laser_t

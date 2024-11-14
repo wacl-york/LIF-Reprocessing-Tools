@@ -1,0 +1,111 @@
+
+import os
+import json
+import numpy as np
+import pandas as pd
+from datetime import datetime as dt
+import LifPy.utils as utils
+
+
+def load_html_prefs():
+
+    html_file_prefs = open('bin/html_plots_prefs.txt', 'rt').read().split('\n')
+
+    html_file_prefs = ''.join(html_file_prefs[int(html_file_prefs[0][2])::]).replace(' ', '').split('}')[:-1]
+
+    html_dict = {int(ID.split('={')[0]): {val.split('=')[0]: val.split('=')[1] for val in
+                                          ID.split('={')[1].split('\t')} for ID in html_file_prefs}
+
+    return html_dict
+
+
+def import_HK_data(HK_file_path, skip_start=0, skip_end=0):
+    # Uses pandas to import the LIF HK data files and concatenate them
+    # files should be in a sub-directory which is provided to the call function as bin_file_path='subdirectory path'
+    # skip_start and skip_end causes the function to not read the first or last files
+
+    file_list = [f for f in os.listdir(HK_file_path) if os.path.isfile(os.path.join(HK_file_path, f))]
+
+    HK_data = {}
+
+    print('\nreading HK files:\n')
+
+    for file in range(skip_start, len(file_list) - skip_end):
+        print(file_list[file])
+        file_data = pd.read_csv(HK_file_path + '/' + file_list[file], delimiter='\s+', header=0)
+
+        for header in list(file_data):
+            try:
+                HK_data[header] = np.concatenate((HK_data[header], file_data[header]))
+            except:
+                HK_data[header] = np.array([])
+                HK_data[header] = np.concatenate((HK_data[header], file_data[header]))
+
+    HK_time_arr = [dt.fromtimestamp(t) if t + 2082844800 != -9999 else np.nan for t in
+                   HK_data['Time_s'][1::] - 2082844800]
+
+    return HK_time_arr, HK_data
+
+
+def interleave_binary_file(binary_data, channel_format, channel_count, rep_rate_Hz=200000):
+    frames = np.array(binary_data)
+    decimate_arr = [frames[idx::channel_count] for idx in range(channel_count)]
+
+    binary_data_dict = {}
+
+    for dict_key in channel_format.items():
+        binary_data_dict[dict_key[0]] = []
+
+    for channel, channel_ID in channel_format.items():
+        if type(0) == type(channel_ID):
+            binary_data_dict[channel] = np.concatenate((binary_data_dict[channel], decimate_arr[channel_ID]))
+        if type([]) == type(channel_ID):
+            hi = decimate_arr[channel_ID[0]] * 65536
+            lo = np.where(decimate_arr[channel_ID[1]] < 0
+                          , decimate_arr[channel_ID[1]] + 65536, decimate_arr[channel_ID[1]])
+            binary_data_dict[channel] = np.concatenate((binary_data_dict[channel], lo + hi))
+
+    binary_data_dict['laser_pwr_PT0'] = binary_data_dict['laser_pwr_PT0'] / 100000
+
+    max_cts = rep_rate_Hz / 100
+
+    binary_data_dict['sig_counts'] = np.array([cts if cts < max_cts else np.nan for cts in binary_data_dict['sig_counts']])
+    binary_data_dict['sig_counts'] = np.array([cts if cts < max_cts else np.nan for cts in binary_data_dict['sig_counts']])
+
+    binary_data_dict['sig_counts_norm'] = -np.log(1 - (binary_data_dict['sig_counts'] / max_cts)) * max_cts
+    binary_data_dict['ref_counts_norm'] = -np.log(1 - (binary_data_dict['ref_counts'] / max_cts)) * max_cts
+
+    binary_data_dict['sig_counts_norm'] = binary_data_dict['sig_counts_norm'] / (binary_data_dict['laser_pwr_PT0'])
+    binary_data_dict['ref_counts_norm'] = binary_data_dict['ref_counts_norm'] / (binary_data_dict['laser_pwr_PT0'])
+
+    delta_bin = [t_1 - t_0 for t_1, t_0 in zip(binary_data_dict['time_ms'][1::]
+                                               , binary_data_dict['time_ms'][0: len(binary_data_dict['time_ms'])])]
+
+    lag_ind = utils.find_min_ind(20 * 1000, delta_bin)
+
+    if delta_bin[lag_ind] > 100:
+        lag = delta_bin[lag_ind]
+    else:
+        lag = np.nan
+
+    return binary_data_dict, lag
+
+
+def gen_shift_dict(file_name, file_shift):
+
+    shift_dict = {'sig_counts': 0, 'ref_counts': 0, 'seed_LD_current': 0, 'laser_pwr_PT0': 0, 'time_ms': 0
+        , 'seed_LD_mode': 0, 'sig_counts_norm': 0, 'ref_counts_norm': 0}
+    # By default the code does not reallign the parameters of any files, unless the below conditional statement is
+    # tripped
+
+    if file_name in list(file_shift['name']):
+        shift_header = file_shift['col_name'][list(file_shift['name']).index(file_name)]
+        shift = file_shift['shift'][list(file_shift['name']).index(file_name)]
+        shift_dict[shift_header] = shift
+        print('Shifting binary data %s series by %.0f' % (shift_header, shift))
+
+    else:
+        print('No file shifting neccessary')
+
+    return shift_dict
+

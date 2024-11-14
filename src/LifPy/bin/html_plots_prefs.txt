@@ -1,0 +1,21 @@
+0 9
+### Do not edit between the hashtags ###
+
+input individual diagnostic plots you wish to generate according to the below
+formatting.
+
+whitespaces will be ignored
+
+### Only edit below here ###
+0 = {name = temperatures
+	x_header = Time_s
+	y_header = [T_board_LIF_cell, Thermistor_7]
+	x_label = time UTC
+	y_label = temperature / degC * 100
+}
+1 = {name = flows
+	x_header = Time_s
+	y_header = [Sig_Cell_Flow, Ref_Cell_Flow]
+	x_label = time UTC
+	y_label = flow / slpm
+}

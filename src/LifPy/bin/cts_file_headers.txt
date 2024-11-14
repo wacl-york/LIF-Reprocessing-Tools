@@ -1,0 +1,22 @@
+0 15
+### Do not edit between the hashtags ###
+
+input the HK headers you want to log and the label they'll be assigned using the
+below format.
+
+'label' = 'header_ID'
+
+An example is included below as well
+
+sig_flow_SLPM = Sig_Cell_Flow
+
+Note that all binary file paramters, including time, are logged by default
+
+### Only edit below here, do not add any blank lines ###
+task = Task
+cal_mfc = Cal_SO2_MFC_Read
+blc_flag_0 = BLC_0_flag
+blc_flag_1 = BLC_1_flag
+sig_cell_flow = Sig_Cell_Flow
+cell_pressure = Cell_Pressure
+ref_cell_flow = Ref_Cell_SLPM
