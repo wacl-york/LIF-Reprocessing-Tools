@@ -7,13 +7,13 @@ you want it to create, example below.
 
 ## Key functions
 
-The reprocess() function will load in the binary and HK data from the default folders below. The 100 Hz binary data will be decimated to 10 Hz (default)
-, whilst the 5 Hz HK data will be extrapolated to 10 Hz.
+The reprocess_binary_data() function will load in the binary and HK data from the default folders below. The 100 Hz binary data will be decimated to 
+10 Hz (default), whilst the 5 Hz HK data will be extrapolated to 10 Hz.
 
 ```
 from LifPy.reprocess import reprocess_binary_data
 
-reprocess(
+reprocess_binary_data(
     log_start_datetime='%d/%m/%Y %H:%M:%S'
     , bin_file_path='data/bin_data'
     , HK_file_path='data/HK_data'
@@ -24,5 +24,7 @@ reprocess(
     , gen_diag_plots=True
 )
 ```
+All variables are defined with default values (excluding log_start_datetime) that rarely need to be changed in the reprocess_binary_data() function. Below is a
+table describing each variable and their excepted inputs.
 
 ## Troubleshooting
