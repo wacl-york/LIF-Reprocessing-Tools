@@ -27,10 +27,15 @@ reprocess_binary_data(
 All variables in the reprocess_binary_data() function are defined with default values (excluding log_start_datetime) that rarely need to be changed. Below is a
 table describing each variable and their accepted inputs.
 
-| var name              | desc          | input type  |
-| --------------------- |:-------------:| -----------:|
-| log_start_datetime    |               |             |
+| var name              | desc          | input type                                         |
+| --------------------- |:-------------:| --------------------------------------------------:|
+| log_start_datetime    |               | string datetime with format '%d/%m/%Y %H:%M:%S'    |
 | bin_file_path         |               |             |
 | HK_file_path          |               |             |
+| data_freq             |               |             |
+| skip_start            |               |             |
+| skip_end              |               |             |
+| ignore_first          |               |             |
+| gen_diag_plots        |               |             |
 
 ## Troubleshooting
