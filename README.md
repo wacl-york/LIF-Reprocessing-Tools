@@ -29,13 +29,13 @@ table describing each variable and their accepted inputs.
 
 | var name                | desc          | input type     |
 | :---------------------: |:-------------:| :------------: |
-| log_start_datetime      |               | string datetime with format '%d/%m/%Y %H:%M:%S' |
-| bin_file_path           |               |             |
-| HK_file_path            |               |             |
-| data_freq               |               |             |
-| skip_start              |               |             |
-| skip_end                |               |             |
-| ignore_first            |               |             |
-| gen_diag_plots          |               |             |
+| log_start_datetime      |               | str('%d/%m/%Y %H:%M:%S') |
+| bin_file_path           |               | str() |
+| HK_file_path            |               | str() |
+| data_freq               |               | int() |
+| skip_start              |               | int() |
+| skip_end                |               | int() |
+| ignore_first            |               | Boolean |
+| gen_diag_plots          |               | Boolean |
 
 ## Troubleshooting
