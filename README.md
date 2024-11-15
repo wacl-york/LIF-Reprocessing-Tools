@@ -24,7 +24,13 @@ reprocess_binary_data(
     , gen_diag_plots=True
 )
 ```
-All variables are defined with default values (excluding log_start_datetime) that rarely need to be changed in the reprocess_binary_data() function. Below is a
-table describing each variable and their excepted inputs.
+All variables in the reprocess_binary_data() function are defined with default values (excluding log_start_datetime) that rarely need to be changed. Below is a
+table describing each variable and their accepted inputs.
+
+| var name              | desc          | input type  |
+| --------------------- |:-------------:| -----------:|
+| log_start_datetime    |               |             |
+| bin_file_path         |               |             |
+| HK_file_path          |               |             |
 
 ## Troubleshooting
