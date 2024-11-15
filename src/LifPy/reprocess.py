@@ -10,7 +10,7 @@ import LifPy.lif_utils as lif_utils
 
 
 def reprocess_binary_data(log_start_datetime, bin_file_path='data\\bin_data', HK_file_path='data\\HK_data', data_freq=10, skip_start=0, skip_end=0
-                          , ignore_first=True, gen_diag_plots=True):
+                          , ignore_first=False, gen_diag_plots=True):
 
     config_path = (r'{}' + '\\bin\\config.txt').format(os.getcwd())
     print(config_path)
