@@ -4,11 +4,50 @@ import json
 import numpy as np
 import pandas as pd
 from datetime import datetime as dt
-import LifPy.utils as utils
+
+
+def generate_folder(path, use_local_dir=True):
+
+    if use_local_dir == True:
+        dir_path = os.path.dirname(__file__)
+        path = (r'{}/' + path).format(dir_path)
+
+    try:
+        os.makedirs(path)
+
+    except OSError:
+        pass
+
+
+def find_min_ind(target, array, start=0, end='full'):
+
+    if end == 'full':
+        array = array[start::]
+    else:
+        array = array[start: end]
+
+    diff_arr = list(abs(np.array(array) - target))
+
+    return diff_arr.index(np.min(diff_arr))
+
+
+def gen_HTML_plots(x_arr, y_dict, name):
+
+    fig = go.Figure()
+
+    for y_key in list(y_dict):
+
+        fig.add_trace(go.Scatter(
+            x=x_arr, y=y_dict[y_key]
+            , mode='lines'
+            , name=y_key
+        ))
+
+    fig.write_html('figures/diagnostics/%s.html' % name)
+    fig.show()
 
 
 def load_html_prefs():
-
     html_file_prefs = open('bin/html_plots_prefs.txt', 'rt').read().split('\n')
 
     html_file_prefs = ''.join(html_file_prefs[int(html_file_prefs[0][2])::]).replace(' ', '').split('}')[:-1]
@@ -69,8 +108,10 @@ def interleave_binary_file(binary_data, channel_format, channel_count, rep_rate_
 
     max_cts = rep_rate_Hz / 100
 
-    binary_data_dict['sig_counts'] = np.array([cts if cts < max_cts else np.nan for cts in binary_data_dict['sig_counts']])
-    binary_data_dict['sig_counts'] = np.array([cts if cts < max_cts else np.nan for cts in binary_data_dict['sig_counts']])
+    binary_data_dict['sig_counts'] = np.array(
+        [cts if cts < max_cts else np.nan for cts in binary_data_dict['sig_counts']])
+    binary_data_dict['sig_counts'] = np.array(
+        [cts if cts < max_cts else np.nan for cts in binary_data_dict['sig_counts']])
 
     binary_data_dict['sig_counts_norm'] = -np.log(1 - (binary_data_dict['sig_counts'] / max_cts)) * max_cts
     binary_data_dict['ref_counts_norm'] = -np.log(1 - (binary_data_dict['ref_counts'] / max_cts)) * max_cts
@@ -92,7 +133,6 @@ def interleave_binary_file(binary_data, channel_format, channel_count, rep_rate_
 
 
 def gen_shift_dict(file_name, file_shift):
-
     shift_dict = {'sig_counts': 0, 'ref_counts': 0, 'seed_LD_current': 0, 'laser_pwr_PT0': 0, 'time_ms': 0
         , 'seed_LD_mode': 0, 'sig_counts_norm': 0, 'ref_counts_norm': 0}
     # By default the code does not reallign the parameters of any files, unless the below conditional statement is

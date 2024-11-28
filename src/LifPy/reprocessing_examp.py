@@ -3,12 +3,25 @@ import os
 import pandas as pd
 import plotly.graph_objects as go
 
-from LifPy.reprocess import reprocess_binary_data
+from reprocess import setup_LifEnv, reprocess_binary_data
+
+
+#setup_LifEnv(path=os.path.dirname(__file__))
+
+HK_headers_dict = {
+    'task': 'Task'
+    , 'cal_mfc': 'Cal_SO2_MFC_Read'
+    , 'blc_flag_0': 'BLC_0_flag'
+    , 'blc_flag_1': 'BLC_1_flag'
+    , 'sig_cell_flow': 'Sig_Cell_Flow'
+    , 'cell_pressure': 'Cell_Pressure'
+    , 'ref_cell_flow': 'Ref_Cell_SLP'
+}
 
 reprocess_binary_data(
-    log_start_datetime='12/11/2024 13:01:48'
+    '13:01:48 12/11/2024'
+    , HK_headers_dict
     , ignore_first=False
-    , gen_diag_plots=False
 )
 
 file_list = [f for f in os.listdir('data/processed_data') if os.path.isfile(os.path.join('data/processed_data', f))]

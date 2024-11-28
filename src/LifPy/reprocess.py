@@ -1,56 +1,72 @@
 
 import os
+import sys
 import numpy as np
 import pandas as pd
 import math
 from itertools import islice
 from datetime import datetime as dt
+import shutil
 import LifPy.utils as utils
 import LifPy.lif_utils as lif_utils
 
 
-def reprocess_binary_data(log_start_datetime, bin_file_path='data\\bin_data', HK_file_path='data\\HK_data', data_freq=10, skip_start=0, skip_end=0
-                          , ignore_first=False, gen_diag_plots=True):
+def setup_LifEnv(path):
+
+    utils.generate_folder(path + '\\bin', use_local_dir=False)
+
+    file_arr = ['config.txt', 'cts_metadata.txt', 'misalligned_files.txt']
+
+    for filename in file_arr:
+        if not os.path.exists(os.path.join(path + '\\bin', filename)):
+            shutil.copyfile(path + '\\bin\\' + filename, os.path.join(path + '\\bin', filename))
+
+    config_file = open(os.path.join(path + '\\bin\\config.txt'), 'a')
+
+    config_file.write('local_dir=' + path)
+
+    config_file.close()
+
+    if not os.path.exists(os.path.join(path + '\\reprocessing_examp.py')):
+        shutil.copyfile(path + '\\reprocessing_examp.py', os.path.join(path + '\\reprocessing_examp.py'))
+
+    if not os.path.exists(os.path.join(path + '\\diag_plots_examp.py')):
+        shutil.copyfile(path + '\\diag_plots_examp.py', os.path.join(path + '\\diag_plots_examp.py'))
+
+    for name in ['bin_data', 'HK_data', 'processed_data']:
+        utils.generate_folder(path + '\\data\\%s' % name, use_local_dir=False)
+
+    for name in ['diagnostics', 'calibrations']:
+        utils.generate_folder(path + '\\figures\\%s' % name, use_local_dir=False)
+
+    print('The LIF processing environment has been successfully setup!')
+
+
+def reprocess_binary_data(log_start_datetime, HK_headers_dict, bin_file_path='data\\bin_data'
+                          , HK_file_path='data\\HK_data', data_freq=10, skip_start=0, skip_end=0, ignore_first=False
+                          , lag=0):
 
     config_path = (r'{}' + '\\bin\\config.txt').format(os.getcwd())
-    print(config_path)
     config = {var.split('=')[0]: var.split('=')[1] for var in open(config_path, 'rt').read().split('\n')}
 
-    HK_time_arr, HK_data = lif_utils.import_HK_data(HK_file_path)
-
-    html_prefs = lif_utils.load_html_prefs()
-
-    if gen_diag_plots == True:
-
-        for plot_key in list(html_prefs):
-
-            if '[' and ']' in html_prefs[plot_key]['y_header']:
-                y_arr = {header: HK_data[header] for header in
-                         html_prefs[plot_key]['y_header'].replace('[', '').replace(']', '').split(sep=',')}
-
-            else:
-                y_arr = HK_data[html_prefs[plot_key]['y_header']]
-
-            utils.gen_HTML_plots(HK_data[html_prefs[plot_key]['x_header']]
-                                 , y_arr, html_prefs[plot_key]['name'])
+    HK_time_arr, HK_data = lif_utils.import_HK_data(config['local_dir'] + '\\' + HK_file_path)
 
     # The misalligned file process corrects for the fact that the seed LD mode may be offset in some counts files
-    if not os.path.exists('bin\\misalligned_files.txt'):
-
-        misalligned_file = open('bin\\misalligned_files.txt', 'w+')
-        misalligned_file.write('name,shift\n')
-        misalligned_file.close()
-
-    await_file_names = input('\nAdd file names to misalligned_files.txt, type y and press enter when complete\n')
-
     # file_shift returns a list of files, the parameters in those files which need to be shifted and in which direction
-    file_shift = pd.read_csv('bin\\misalligned_files.txt', header=0, delimiter=',')
+
+    file_shift = pd.read_csv(config['local_dir'] + '\\bin\\misalligned_files.txt', header=0, delimiter=',')
 
     # Produces a list of filenames based off the directory specified
     file_list = [f for f in os.listdir(bin_file_path) if os.path.isfile(os.path.join(bin_file_path, f))]
 
     # function to skip files
-    file_list = file_list[skip_start: len(file_list) - skip_end]
+    try:
+        file_list = file_list[skip_start: len(file_list) - skip_end]
+    except Exception as err:
+        if skip_end + skip_start >= len(file_list):
+            print('Error - skip_start and skip_end are set to discard all binary files.')
+        else:
+            print(err)
 
     # channel_format is a dict of the indices for the different data columns (those with two indices have been
     # split into hi lo numbers
@@ -59,8 +75,31 @@ def reprocess_binary_data(log_start_datetime, bin_file_path='data\\bin_data', HK
     channel_count = 10
 
     # epoch time is the number of seconds between 01/01/1904 and the log_start_time
-    epoch_time = (dt.strptime(log_start_datetime, '%d/%m/%Y %H:%M:%S') -
-                  dt.strptime('01/01/1904', '%d/%m/%Y')).total_seconds()
+    try:
+        epoch_time = (dt.strptime(log_start_datetime, '%d/%m/%Y %H:%M:%S') -
+                      dt.strptime('01/01/1904', '%d/%m/%Y')).total_seconds()
+    except Exception as err:
+        print('\n' + str(err))
+        if 'does not match format' in str(err):
+            print('\nTrying alternative timestamp formatter')
+            try:
+                epoch_time = (dt.strptime(log_start_datetime, '%H:%M:%S %d/%m/%Y')
+                              - dt.strptime('01/01/1904', '%d/%m/%Y')).total_seconds()
+                print('Successfully coerced timestamp')
+            except:
+                print('\nUnable to convert log_start_datetime string, please check the input format. Exit - 01')
+                sys.exit(1)
+
+        if 'unconverted data remains:' in str(err):
+            print('\nDeleting milliseconds from timestamp')
+            try:
+                epoch_time = (dt.strptime(log_start_datetime.replace(str(err).split(': ')[1], ''), '%d/%m/%Y %H:%M:%S')
+                              - dt.strptime('01/01/1904', '%d/%m/%Y')).total_seconds()
+                print('Successfully coerced timestamp')
+            except:
+                print('\nUnable to convert log_start_datetime string, please check the input format. Exit - 01')
+                sys.exit(1)
+
 
     for file in file_list:
 
@@ -78,17 +117,16 @@ def reprocess_binary_data(log_start_datetime, bin_file_path='data\\bin_data', HK
 
         binary_data = np.fromfile(bin_file_path + '/' + file, dtype='>i2')
 
-        binary_data_dict, lag = lif_utils.interleave_binary_file(binary_data, channel_format, channel_count)
+        binary_data_dict, lag_calc = lif_utils.interleave_binary_file(binary_data, channel_format, channel_count)
 
         if file == file_list[0]:
-            if not math.isnan(lag):
+            if not math.isnan(lag_calc):
                 # corrects for startup lag if found, the + 0.5 is so that int() always rounds up
-                lag_sec = lag / 1000
+                lag_sec = lag_calc / 1000
                 HK_data['Time_s'] = HK_data['Time_s'] - int((lag_sec / 2) + 0.5)
 
                 print('Shift HK data by %.0f seconds' % lag_sec)
             else:
-                lag = int(input('Enter expected HK, Binary data lag time in seconds:\n'))
                 HK_data['Time_s'] = HK_data['Time_s'] - int((lag / 2) + 0.5)
 
         tot_steps = len(binary_data_dict['time_ms']) - 1
@@ -102,11 +140,13 @@ def reprocess_binary_data(log_start_datetime, bin_file_path='data\\bin_data', HK
         binary_headers = 'mac_time_s,sig_on_cts,sig_off_cts,sig_cts_diff,ref_on_cts,ref_off_cts,ref_cts_diff,' \
                          'lsr_pwr_on_mW,lsr_pwr_off_mW,lsr_pwr_mW'
 
-        HK_header_start = pd.read_csv('bin\\cts_file_headers.txt', header=None, delim_whitespace=True
-                                      , nrows=1)[1][0]
-        HK_headers_file = pd.read_csv('bin\\cts_file_headers.txt', skiprows=HK_header_start
-                                      , header=None, delimiter='=', skipinitialspace=True)
-        HK_headers_dict = {label.replace(' ', ''): HK_ID for label, HK_ID in zip(HK_headers_file[0], HK_headers_file[1])}
+        for HK_ID in list(HK_headers_dict):
+            try:
+                HK_data[HK_headers_dict[HK_ID]]
+            except Exception as err:
+                print('\nThere is no HK data header called ' + str(err).replace("'", '') + ', so it will be discarded')
+                del HK_headers_dict[HK_ID]
+
         HK_labels = ','.join(list(HK_headers_dict)) + '\n'
 
         all_headers = binary_headers + ',' + HK_labels
