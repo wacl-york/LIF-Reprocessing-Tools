@@ -12,7 +12,7 @@ import LifPy.lif_utils as lif_utils
 
 def setup_LifEnv(path):
 
-    utils.generate_folder(path + '\\lib', use_local_dir=False)
+    lif_utils.generate_folder(path + '\\lib', use_local_dir=False)
 
     file_arr = ['config.txt', 'cts_metadata.txt', 'misalligned_files.txt']
 
@@ -33,10 +33,10 @@ def setup_LifEnv(path):
         shutil.copyfile(path + '\\diag_plots_examp.py', os.path.join(path + '\\diag_plots_examp.py'))
 
     for name in ['bin_data', 'HK_data', 'processed_data']:
-        utils.generate_folder(path + '\\data\\%s' % name, use_local_dir=False)
+        lif_utils.generate_folder(path + '\\data\\%s' % name, use_local_dir=False)
 
     for name in ['diagnostics', 'calibrations']:
-        utils.generate_folder(path + '\\figures\\%s' % name, use_local_dir=False)
+        lif_utils.generate_folder(path + '\\figures\\%s' % name, use_local_dir=False)
 
     print('The LIF processing environment has been successfully setup!')
 
@@ -162,8 +162,8 @@ def reprocess_binary_data(log_start_datetime, HK_headers_dict, bin_file_path='da
         bin_time = [0]
         bin_time_arr = (binary_data_dict['time_ms'] / 1000) + epoch_time
 
-        HK_start_ind = utils.find_min_ind(bin_time_arr[0], HK_data['Time_s'])
-        HK_end_ind = utils.find_min_ind(bin_time_arr[-1], HK_data['Time_s'])
+        HK_start_ind = lif_utils.find_min_ind(bin_time_arr[0], HK_data['Time_s'])
+        HK_end_ind = lif_utils.find_min_ind(bin_time_arr[-1], HK_data['Time_s'])
 
         if HK_start_ind == HK_end_ind:
             print('\nThe log_start_datetime is incorrect')
@@ -217,7 +217,7 @@ def reprocess_binary_data(log_start_datetime, HK_headers_dict, bin_file_path='da
                     ref_cts = (on_ref_cts - off_ref_cts) * 10 * data_freq
                     lsr_pwr = np.mean([on_lsr_pwr, off_lsr_pwr])
 
-                    HK_ind = HK_start_ind + utils.find_min_ind(curr_time, HK_data['Time_s'], HK_start_ind, HK_end_ind)
+                    HK_ind = HK_start_ind + lif_utils.find_min_ind(curr_time, HK_data['Time_s'], HK_start_ind, HK_end_ind)
 
                     if not math.isnan(sig_cts):
 
