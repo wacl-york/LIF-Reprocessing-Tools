@@ -20,7 +20,7 @@ def setup_LifEnv(path):
         if not os.path.exists(os.path.join(path + '\\lib', filename)):
             shutil.copyfile(path + '\\lib\\' + filename, os.path.join(path + '\\lib', filename))
 
-    config_file = open(os.path.join(path + '\\lib\\config.txt'), 'w')
+    config_file = open(os.path.join(path + '\\lib\\config.txt'), 'w+')
 
     config_file.write('local_dir=' + path)
 
