@@ -7,7 +7,6 @@ import math
 from itertools import islice
 from datetime import datetime as dt
 import shutil
-import LifPy.utils as utils
 import LifPy.lif_utils as lif_utils
 
 
