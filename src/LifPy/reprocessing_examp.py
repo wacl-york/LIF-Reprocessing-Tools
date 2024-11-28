@@ -6,7 +6,7 @@ import plotly.graph_objects as go
 from reprocess import setup_LifEnv, reprocess_binary_data
 
 
-#setup_LifEnv(path=os.path.dirname(__file__))
+setup_LifEnv(path=os.path.dirname(__file__))
 
 HK_headers_dict = {
     'task': 'Task'
@@ -19,7 +19,7 @@ HK_headers_dict = {
 }
 
 reprocess_binary_data(
-    '13:01:48 12/11/2024'
+    '12/11/2024 13:01:48'
     , HK_headers_dict
     , ignore_first=False
 )
@@ -30,7 +30,7 @@ cts_data = pd.DataFrame()
 for file in file_list:
     cts_data = pd.concat([
         cts_data
-        , pd.read_csv('data/processed_data/' + file)
+        , pd.read_csv('data/processed_data/' + file, header=9)
     ], ignore_index=True)
 
 

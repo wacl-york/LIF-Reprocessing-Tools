@@ -1,0 +1,5 @@
+Author: Jake Vallow
+Organisation: University of York, Wolfson Atmospheric Chemistry Laboratory
+contact: jake.vallow@york.ac.uk
+Instrument ID: Single Channel NO-LIF, laser 3
+label: Example data

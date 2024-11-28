@@ -1,4 +1,4 @@
-
+import datetime
 import os
 import sys
 import numpy as np
@@ -13,15 +13,15 @@ import LifPy.lif_utils as lif_utils
 
 def setup_LifEnv(path):
 
-    utils.generate_folder(path + '\\bin', use_local_dir=False)
+    utils.generate_folder(path + '\\lib', use_local_dir=False)
 
     file_arr = ['config.txt', 'cts_metadata.txt', 'misalligned_files.txt']
 
     for filename in file_arr:
-        if not os.path.exists(os.path.join(path + '\\bin', filename)):
-            shutil.copyfile(path + '\\bin\\' + filename, os.path.join(path + '\\bin', filename))
+        if not os.path.exists(os.path.join(path + '\\lib', filename)):
+            shutil.copyfile(path + '\\lib\\' + filename, os.path.join(path + '\\lib', filename))
 
-    config_file = open(os.path.join(path + '\\bin\\config.txt'), 'a')
+    config_file = open(os.path.join(path + '\\lib\\config.txt'), 'w')
 
     config_file.write('local_dir=' + path)
 
@@ -46,7 +46,7 @@ def reprocess_binary_data(log_start_datetime, HK_headers_dict, bin_file_path='da
                           , HK_file_path='data\\HK_data', data_freq=10, skip_start=0, skip_end=0, ignore_first=False
                           , lag=0):
 
-    config_path = (r'{}' + '\\bin\\config.txt').format(os.getcwd())
+    config_path = (r'{}' + '\\lib\\config.txt').format(os.getcwd())
     config = {var.split('=')[0]: var.split('=')[1] for var in open(config_path, 'rt').read().split('\n')}
 
     HK_time_arr, HK_data = lif_utils.import_HK_data(config['local_dir'] + '\\' + HK_file_path)
@@ -54,7 +54,7 @@ def reprocess_binary_data(log_start_datetime, HK_headers_dict, bin_file_path='da
     # The misalligned file process corrects for the fact that the seed LD mode may be offset in some counts files
     # file_shift returns a list of files, the parameters in those files which need to be shifted and in which direction
 
-    file_shift = pd.read_csv(config['local_dir'] + '\\bin\\misalligned_files.txt', header=0, delimiter=',')
+    file_shift = pd.read_csv(config['local_dir'] + '\\lib\\misalligned_files.txt', header=0, delimiter=',')
 
     # Produces a list of filenames based off the directory specified
     file_list = [f for f in os.listdir(bin_file_path) if os.path.isfile(os.path.join(bin_file_path, f))]
@@ -132,10 +132,16 @@ def reprocess_binary_data(log_start_datetime, HK_headers_dict, bin_file_path='da
         tot_steps = len(binary_data_dict['time_ms']) - 1
 
         # counts number of files in processed data folder and generates an index based on this number
-        file_ind = str(len(os.listdir('data\\processed_data'))).zfill(2)
+        file_ind = str(len(os.listdir(config['local_dir'] + '\\data\\processed_data'))).zfill(2)
 
-        binary_file = open('data\\processed_data\\%s_LIF_processed_data_%s.txt'
+        binary_file = open(config['local_dir'] + '\\data\\processed_data\\%s_LIF_processed_data_%s.txt'
                            % (file.split(sep="_")[1][0: 8], file_ind), 'w+')
+
+        met_add = '\nReprocessed on: ' + dt.strftime(dt.now(), '%Y/%m/%d %H:%M:%S') + \
+                  '\nTime reference: (seconds since 1904-01-01 00:00:00)\nPermalink to reprocess code: \n'
+
+        cts_met = '\n\n' + open(config['local_dir'] + '\\lib\\cts_metadata.txt').read() + met_add
+        binary_file.write(str(cts_met.count('\n') - 1) + cts_met + '\n')
 
         binary_headers = 'mac_time_s,sig_on_cts,sig_off_cts,sig_cts_diff,ref_on_cts,ref_off_cts,ref_cts_diff,' \
                          'lsr_pwr_on_mW,lsr_pwr_off_mW,lsr_pwr_mW'
@@ -159,7 +165,10 @@ def reprocess_binary_data(log_start_datetime, HK_headers_dict, bin_file_path='da
 
         HK_start_ind = utils.find_min_ind(bin_time_arr[0], HK_data['Time_s'])
         HK_end_ind = utils.find_min_ind(bin_time_arr[-1], HK_data['Time_s'])
-        # The start and end ind is the slice of HK data which overlaps with the binary data
+
+        if HK_start_ind == HK_end_ind:
+            print('\nThe log_start_datetime is incorrect')
+            sys.exit(1)
 
         iter_range = iter(range(tot_steps))
 
