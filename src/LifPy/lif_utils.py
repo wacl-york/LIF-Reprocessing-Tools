@@ -4,6 +4,7 @@ import json
 import numpy as np
 import pandas as pd
 from datetime import datetime as dt
+import plotly.graph_objects as go
 
 
 def generate_folder(path, use_local_dir=True):
@@ -122,7 +123,7 @@ def interleave_binary_file(binary_data, channel_format, channel_count, rep_rate_
     delta_bin = [t_1 - t_0 for t_1, t_0 in zip(binary_data_dict['time_ms'][1::]
                                                , binary_data_dict['time_ms'][0: len(binary_data_dict['time_ms'])])]
 
-    lag_ind = utils.find_min_ind(20 * 1000, delta_bin)
+    lag_ind = find_min_ind(20 * 1000, delta_bin)
 
     if delta_bin[lag_ind] > 100:
         lag = delta_bin[lag_ind]
