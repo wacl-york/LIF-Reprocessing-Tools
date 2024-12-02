@@ -169,6 +169,7 @@ def reprocess_binary_data(log_start_datetime, HK_headers_dict, bin_file_path='da
 
         if HK_start_ind == HK_end_ind:
             print('\nThe log_start_datetime is incorrect')
+            print(bin_time_arr[0])
             sys.exit(1)
 
         iter_range = iter(range(tot_steps))

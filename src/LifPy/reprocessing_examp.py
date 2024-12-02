@@ -3,10 +3,10 @@ import os
 import pandas as pd
 import plotly.graph_objects as go
 
-from reprocess import setup_LifEnv, reprocess_binary_data
+from Lifpy.reprocess import setup_LifEnv, reprocess_binary_data
 
 
-setup_LifEnv(path=os.path.dirname(__file__))
+#setup_LifEnv(path=os.path.dirname(__file__))
 
 HK_headers_dict = {
     'task': 'Task'
