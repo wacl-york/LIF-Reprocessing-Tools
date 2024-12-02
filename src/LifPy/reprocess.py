@@ -8,13 +8,14 @@ from itertools import islice
 from datetime import datetime as dt
 import shutil
 import LifPy
+import LifPy.lif_utils as lif_utils
 
 
 def setup_LifEnv(path):
 
     LifPy_path = LifPy.__path__[0]
 
-    LifPy.lif_utils.generate_folder(path + '\\lib', use_local_dir=False)
+    lif_utils.generate_folder(path + '\\lib', use_local_dir=False)
 
     file_arr = ['config.txt', 'cts_metadata.txt', 'misalligned_files.txt']
 
@@ -35,10 +36,10 @@ def setup_LifEnv(path):
         shutil.copyfile(LifPy_path + '\\diag_plots_examp.py', os.path.join(path + '\\diag_plots_examp.py'))
 
     for name in ['bin_data', 'HK_data', 'processed_data']:
-        LifPy.lif_utils.generate_folder(path + '\\data\\%s' % name, use_local_dir=False)
+        lif_utils.generate_folder(path + '\\data\\%s' % name, use_local_dir=False)
 
     for name in ['diagnostics', 'calibrations']:
-        LifPy.lif_utils.generate_folder(path + '\\figures\\%s' % name, use_local_dir=False)
+        lif_utils.generate_folder(path + '\\figures\\%s' % name, use_local_dir=False)
 
     print('The LIF processing environment has been successfully setup!')
 
