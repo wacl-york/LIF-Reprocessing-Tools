@@ -12,13 +12,15 @@ import LifPy.lif_utils as lif_utils
 
 def setup_LifEnv(path):
 
-    lif_utils.generate_folder(path + '\\lib', use_local_dir=False)
+    LifPy_path = LifPy.__path__[0]
+
+    LifPy.lif_utils.generate_folder(path + '\\lib', use_local_dir=False)
 
     file_arr = ['config.txt', 'cts_metadata.txt', 'misalligned_files.txt']
 
     for filename in file_arr:
         if not os.path.exists(os.path.join(path + '\\lib', filename)):
-            shutil.copyfile(os.path.join(path + '\\lib', filename), path + '\\lib\\' + filename)
+            shutil.copyfile(LifPy_path + '\\lib', filename, path + '\\lib\\' + filename)
 
     config_file = open(os.path.join(path + '\\lib\\config.txt'), 'w+')
 
@@ -27,16 +29,16 @@ def setup_LifEnv(path):
     config_file.close()
 
     if not os.path.exists(os.path.join(path + '\\reprocessing_examp.py')):
-        shutil.copyfile(path + '\\reprocessing_examp.py', os.path.join(path + '\\reprocessing_examp.py'))
+        shutil.copyfile(LifPy_path + '\\reprocessing_examp.py', os.path.join(path + '\\reprocessing_examp.py'))
 
     if not os.path.exists(os.path.join(path + '\\diag_plots_examp.py')):
-        shutil.copyfile(path + '\\diag_plots_examp.py', os.path.join(path + '\\diag_plots_examp.py'))
+        shutil.copyfile(LifPy_path + '\\diag_plots_examp.py', os.path.join(path + '\\diag_plots_examp.py'))
 
     for name in ['bin_data', 'HK_data', 'processed_data']:
-        lif_utils.generate_folder(path + '\\data\\%s' % name, use_local_dir=False)
+        LifPy.lif_utils.generate_folder(path + '\\data\\%s' % name, use_local_dir=False)
 
     for name in ['diagnostics', 'calibrations']:
-        lif_utils.generate_folder(path + '\\figures\\%s' % name, use_local_dir=False)
+        LifPy.lif_utils.generate_folder(path + '\\figures\\%s' % name, use_local_dir=False)
 
     print('The LIF processing environment has been successfully setup!')
 
