@@ -3,10 +3,10 @@ import os
 import pandas as pd
 import plotly.graph_objects as go
 
-from Lifpy.reprocess import setup_LifEnv, reprocess_binary_data
+from LifPy.reprocess import setup_LifEnv, reprocess_binary_data
 
 
-#setup_LifEnv(path=os.path.dirname(__file__))
+setup_LifEnv(path=os.path.dirname(__file__))
 
 HK_headers_dict = {
     'task': 'Task'
@@ -15,7 +15,7 @@ HK_headers_dict = {
     , 'blc_flag_1': 'BLC_1_flag'
     , 'sig_cell_flow': 'Sig_Cell_Flow'
     , 'cell_pressure': 'Cell_Pressure'
-    , 'ref_cell_flow': 'Ref_Cell_SLP'
+    , 'ref_cell_flow': 'Ref_Cell_SLPM'
 }
 
 reprocess_binary_data(

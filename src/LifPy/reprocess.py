@@ -7,7 +7,7 @@ import math
 from itertools import islice
 from datetime import datetime as dt
 import shutil
-import LifPy.lif_utils as lif_utils
+import LifPy
 
 
 def setup_LifEnv(path):
