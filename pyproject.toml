@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "LifPy"
-version = "0.0.21"
+version = "0.0.22"
 authors = [
   { name="Jake Vallow", email="jake.t.vallow@gmail.com" },
 ]
