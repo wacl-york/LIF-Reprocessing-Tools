@@ -18,10 +18,21 @@ HK_headers_dict = {
     , 'ref_cell_flow': 'Ref_Cell_SLPM'
 }
 
+channel_format = {
+    'sig_counts_A': 0
+    , 'ref_counts': 1
+    , 'seed_LD_current': 2
+    , 'laser_pwr_PT0': [3, 4]
+    , 'time_ms': [7, 8]
+    , 'seed_LD_mode': 9
+}  # if your data is a form of signal counts it must follow the format 'sig_counts_X' where X can be any letter
+
 reprocess_binary_data(
     '12/11/2024 13:01:48'
     , HK_headers_dict
+    , channel_format
     , ignore_first=False
+    , channel_count=10
 )
 
 file_list = [f for f in os.listdir('data/processed_data') if os.path.isfile(os.path.join('data/processed_data', f))]

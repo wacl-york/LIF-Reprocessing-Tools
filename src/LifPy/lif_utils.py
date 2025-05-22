@@ -109,16 +109,13 @@ def interleave_binary_file(binary_data, channel_format, channel_count, rep_rate_
 
     max_cts = rep_rate_Hz / 100
 
-    binary_data_dict['sig_counts'] = np.array(
-        [cts if cts < max_cts else np.nan for cts in binary_data_dict['sig_counts']])
-    binary_data_dict['sig_counts'] = np.array(
-        [cts if cts < max_cts else np.nan for cts in binary_data_dict['sig_counts']])
+    for channel in list(channel_format):
+        if 'counts' in channel:
+            binary_data_dict[channel] = np.array([cts if cts < max_cts else np.nan for cts in binary_data_dict[channel]])
 
-    binary_data_dict['sig_counts_norm'] = -np.log(1 - (binary_data_dict['sig_counts'] / max_cts)) * max_cts
-    binary_data_dict['ref_counts_norm'] = -np.log(1 - (binary_data_dict['ref_counts'] / max_cts)) * max_cts
+            binary_data_dict[channel + '_norm'] = -np.log(1 - (binary_data_dict[channel] / max_cts)) * max_cts
 
-    binary_data_dict['sig_counts_norm'] = binary_data_dict['sig_counts_norm'] / (binary_data_dict['laser_pwr_PT0'])
-    binary_data_dict['ref_counts_norm'] = binary_data_dict['ref_counts_norm'] / (binary_data_dict['laser_pwr_PT0'])
+            binary_data_dict[channel + '_norm'] = binary_data_dict[channel + '_norm'] / (binary_data_dict['laser_pwr_PT0'])
 
     delta_bin = [t_1 - t_0 for t_1, t_0 in zip(binary_data_dict['time_ms'][1::]
                                                , binary_data_dict['time_ms'][0: len(binary_data_dict['time_ms'])])]
@@ -133,9 +130,8 @@ def interleave_binary_file(binary_data, channel_format, channel_count, rep_rate_
     return binary_data_dict, lag
 
 
-def gen_shift_dict(file_name, file_shift):
-    shift_dict = {'sig_counts': 0, 'ref_counts': 0, 'seed_LD_current': 0, 'laser_pwr_PT0': 0, 'time_ms': 0
-        , 'seed_LD_mode': 0, 'sig_counts_norm': 0, 'ref_counts_norm': 0}
+def gen_shift_dict(file_name, file_shift, channel_names):
+    shift_dict = {name: 0 for name in channel_names}
     # By default the code does not reallign the parameters of any files, unless the below conditional statement is
     # tripped
 

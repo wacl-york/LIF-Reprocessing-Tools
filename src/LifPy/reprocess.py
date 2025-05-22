@@ -45,9 +45,9 @@ def setup_LifEnv(path):
     print('The LIF processing environment has been successfully setup!')
 
 
-def reprocess_binary_data(log_start_datetime, HK_headers_dict, bin_file_path='data\\bin_data'
+def reprocess_binary_data(log_start_datetime, HK_headers_dict, channel_format, bin_file_path='data\\bin_data'
                           , HK_file_path='data\\HK_data', data_freq=10, skip_start=0, skip_end=0, ignore_first=False
-                          , lag=0):
+                          , lag=0, channel_count=10):
 
     config_path = (r'{}' + '\\lib\\config.txt').format(os.getcwd())
     config = {var.split('=')[0]: var.split('=')[1] for var in open(config_path, 'rt').read().split('\n')}
@@ -70,12 +70,6 @@ def reprocess_binary_data(log_start_datetime, HK_headers_dict, bin_file_path='da
             print('Error - skip_start and skip_end are set to discard all binary files.')
         else:
             print(err)
-
-    # channel_format is a dict of the indices for the different data columns (those with two indices have been
-    # split into hi lo numbers
-    channel_format = {'sig_counts': 0, 'ref_counts': 1, 'seed_LD_current': 2, 'laser_pwr_PT0': [3, 4], 'time_ms': [7, 8]
-        , 'seed_LD_mode': 9}
-    channel_count = 10
 
     # epoch time is the number of seconds between 01/01/1904 and the log_start_time
     try:
@@ -109,18 +103,21 @@ def reprocess_binary_data(log_start_datetime, HK_headers_dict, bin_file_path='da
         print('\nReprocessing file %s' % file)
 
         # returns dict containing neccassary shifts to binary data
-        shift_dict = lif_utils.gen_shift_dict(file, file_shift)
+        shift_dict = lif_utils.gen_shift_dict(file, file_shift, list(channel_format))
 
-        shf_sig, shf_ref, shf_LD_mode, shf_lsr = [
-            shift_dict['sig_counts_norm']
-            , shift_dict['ref_counts_norm']
-            , shift_dict['seed_LD_mode']
-            , shift_dict['laser_pwr_PT0']
-        ]
+        shf_LD_mode = shift_dict['seed_LD_mode']
+
+        #shf_sig, shf_ref, shf_LD_mode, shf_lsr = [
+        #    shift_dict['sig_counts_norm']
+        #    , shift_dict['ref_counts_norm']
+        #    , shift_dict['seed_LD_mode']
+        #    , shift_dict['laser_pwr_PT0']
+        #]
 
         binary_data = np.fromfile(bin_file_path + '/' + file, dtype='>i2')
 
         binary_data_dict, lag_calc = lif_utils.interleave_binary_file(binary_data, channel_format, channel_count)
+        cts_ind_arr = [i for i in range(0, len(list(binary_data_dict))) if 'counts_norm' in list(binary_data_dict)[i]]
 
         if file == file_list[0]:
             if not math.isnan(lag_calc):
@@ -146,8 +143,11 @@ def reprocess_binary_data(log_start_datetime, HK_headers_dict, bin_file_path='da
         cts_met = '\n\n' + open(config['local_dir'] + '\\lib\\cts_metadata.txt').read() + met_add
         binary_file.write(str(cts_met.count('\n') - 1) + cts_met + '\n')
 
-        binary_headers = 'mac_time_s,sig_on_cts,sig_off_cts,sig_cts_diff,ref_on_cts,ref_off_cts,ref_cts_diff,' \
-                         'lsr_pwr_on_mW,lsr_pwr_off_mW,lsr_pwr_mW'
+        gen_headers = 'mac_time_s,lsr_pwr_on_mW,lsr_pwr_off_mW,lsr_pwr_mW'
+        cts_labels = [name.split('_')[0] + '_' + name.split('_')[-1] for name in list(channel_format) if '_counts_' in name]
+        cts_headers = ','.join(['%s_on_cts,%s_off_cts,%s_diff_cts' % (label, label, label) for label in cts_labels])
+
+        binary_headers = gen_headers + ',' + cts_headers
 
         for HK_ID in list(HK_headers_dict):
             try:
@@ -156,9 +156,9 @@ def reprocess_binary_data(log_start_datetime, HK_headers_dict, bin_file_path='da
                 print('\nThere is no HK data header called ' + str(err).replace("'", '') + ', so it will be discarded')
                 del HK_headers_dict[HK_ID]
 
-        HK_labels = ','.join(list(HK_headers_dict)) + '\n'
+        HK_labels = ','.join(list(HK_headers_dict))
 
-        all_headers = binary_headers + ',' + HK_labels
+        all_headers = binary_headers + ',' + HK_labels + '\n'
         binary_file.write(all_headers)
 
         nan_data = ','.join(np.full(len(all_headers.split(',')[1::]), str(-9999)))
@@ -206,31 +206,36 @@ def reprocess_binary_data(log_start_datetime, HK_headers_dict, bin_file_path='da
                     bin_time.append(binary_data_dict['time_ms'][i])
 
                     if ignore_first:
-                        offset = 6 # This removes the first online point, which can sometimes by bias low
+                        offset = 6  # This removes the first online point, which can sometimes by bias low
                     else:
                         offset = 7
 
-                    on_cts = np.mean(binary_data_dict['sig_counts_norm'][i - offset + shf_sig: i + 1 + shf_sig])
-                    on_ref_cts = np.mean(binary_data_dict['ref_counts_norm'][i - offset + shf_ref: i + 1 + shf_ref])
-                    on_lsr_pwr = np.mean(binary_data_dict['laser_pwr_PT0'][i - offset + shf_lsr: i + 1 + shf_lsr])
+                    cts_wrt_list = []
 
-                    off_cts = np.mean(binary_data_dict['sig_counts_norm'][i + 1 + shf_sig: i + 3 + shf_sig])
-                    off_ref_cts = np.mean(binary_data_dict['ref_counts_norm'][i + 1 + shf_ref: i + 3 + shf_ref])
-                    off_lsr_pwr = np.mean(binary_data_dict['laser_pwr_PT0'][i + 1 + shf_lsr: i + 3 + shf_lsr])
+                    for l in cts_ind_arr:
+                        on_cts = np.mean(binary_data_dict[list(binary_data_dict)[l]][i - offset: i + 1]) * 10 * data_freq
+                        off_cts = np.mean(binary_data_dict[list(binary_data_dict)[l]][i + 1: i + 3]) * 10 * data_freq
 
-                    sig_cts = (on_cts - off_cts) * 10 * data_freq
-                    ref_cts = (on_ref_cts - off_ref_cts) * 10 * data_freq
+                        cts_diff = on_cts - off_cts
+
+                        cts_wrt_list.append(str(on_cts) + ',' + str(off_cts) + ',' + str(cts_diff))
+
+
+
+                    #on_cts = np.mean(binary_data_dict['sig_counts_norm'][i - offset + shf_sig: i + 1 + shf_sig])
+                    #on_ref_cts = np.mean(binary_data_dict['ref_counts_norm'][i - offset + shf_ref: i + 1 + shf_ref])
+
+                    on_lsr_pwr = np.mean(binary_data_dict['laser_pwr_PT0'][i - offset: i + 1])
+                    off_lsr_pwr = np.mean(binary_data_dict['laser_pwr_PT0'][i + 1: i + 3])
                     lsr_pwr = np.mean([on_lsr_pwr, off_lsr_pwr])
 
                     HK_ind = HK_start_ind + lif_utils.find_min_ind(curr_time, HK_data['Time_s'], HK_start_ind, HK_end_ind)
 
-                    if not math.isnan(sig_cts):
+                    if not math.isnan(cts_diff):
 
-                        bin_write = ','.join([str(curr_time), str(on_cts), str(off_cts), str(sig_cts), str(on_ref_cts)
-                                             , str(off_ref_cts), str(ref_cts), str(on_lsr_pwr), str(off_lsr_pwr)
-                                             , str(lsr_pwr)])
-                        HK_write = ','.join([str(HK_data[HK_headers_dict[label]][HK_ind]) for label in
-                                             list(HK_headers_dict)])
+                        gen_write = ','.join([str(curr_time), str(on_lsr_pwr), str(off_lsr_pwr), str(lsr_pwr)])
+                        cts_write = ','.join(cts_wrt_list)
+                        HK_write = ','.join([str(HK_data[HK_headers_dict[key]][HK_ind]) for key in list(HK_headers_dict)])
 
-                        binary_file.write(bin_write + ',' + HK_write + '\n')
+                        binary_file.write(gen_write + ',' + cts_write + ',' + HK_write + '\n')
 

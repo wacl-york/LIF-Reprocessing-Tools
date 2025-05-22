@@ -1,0 +1,12 @@
+9
+
+Author: Jake Vallow
+Organisation: University of York, Wolfson Atmospheric Chemistry Laboratory
+contact: jake.vallow@york.ac.uk
+Instrument ID: Single Channel NO-LIF, laser 3
+label: Example data
+Reprocessed on: 2025/05/22 15:48:01
+Time reference: (seconds since 1904-01-01 00:00:00)
+Permalink to reprocess code: 
+
+mac_time_s,lsr_pwr_on_mW,lsr_pwr_off_mW,lsr_pwr_mW,sig_A_on_cts,sig_A_off_cts,sig_A_diff_cts,task,cal_mfc,blc_flag_0,blc_flag_1,sig_cell_flow,cell_pressure,ref_cell_flow
