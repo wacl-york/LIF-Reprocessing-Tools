@@ -25,10 +25,11 @@ channel_format = {
     , 'laser_pwr_PT0': [3, 4]
     , 'time_ms': [7, 8]
     , 'seed_LD_mode': 9
+    #, 'sig_counts_B': 10
 }  # if your data is a form of signal counts it must follow the format 'sig_counts_X' where X can be any letter
 
 reprocess_binary_data(
-    '12/11/2024 13:01:48'
+    '29/05/2025 08:58:00'
     , HK_headers_dict
     , channel_format
     , ignore_first=False
@@ -48,19 +49,15 @@ for file in file_list:
 fig = go.Figure()
 
 fig.add_trace(go.Scatter(
-    x=cts_data['mac_time_s'], y=cts_data['sig_cts_diff'] / cts_data['ref_cts_diff']
+    x=cts_data['mac_time_s'], y=cts_data['sig_A_diff_cts'] / cts_data['ref_cts_diff']
     , mode='lines'
 ))
 
 fig.add_trace(go.Scatter(
-    x=cts_data['mac_time_s'], y=cts_data['blc_flag_0']
+    x=cts_data['mac_time_s'], y=cts_data['cal_mfc']
     , mode='lines'
 ))
 
-fig.add_trace(go.Scatter(
-    x=cts_data['mac_time_s'], y=cts_data['blc_flag_1']
-    , mode='lines'
-))
-
+fig.write_html('sample.html')
 fig.show()
 
