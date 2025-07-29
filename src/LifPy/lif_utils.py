@@ -110,6 +110,7 @@ def interleave_binary_file(binary_data, channel_format, channel_count, rep_rate_
     max_cts = rep_rate_Hz / 100
 
     for channel in list(channel_format):
+
         if 'counts' in channel:
             binary_data_dict[channel] = np.array([cts if cts < max_cts else np.nan for cts in binary_data_dict[channel]])
 

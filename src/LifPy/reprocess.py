@@ -16,48 +16,48 @@ def setup_LifEnv(path):
 
     LifPy_path = LifPy.__path__[0]
 
-    lif_utils.generate_folder(path + '\\lib', use_local_dir=False)
+    lif_utils.generate_folder(path + '/lib', use_local_dir=False)
 
     file_arr = ['config.txt', 'cts_metadata.txt', 'misalligned_files.txt']
 
     for filename in file_arr:
-        if not os.path.exists(os.path.join(path + '\\lib', filename)):
-            shutil.copyfile(LifPy_path + '\\lib\\' + filename, path + '\\lib\\' + filename)
+        if not os.path.exists(os.path.join(path + '/lib', filename)):
+            shutil.copyfile(LifPy_path + '/lib/' + filename, path + '/lib/' + filename)
 
-    config_file = open(os.path.join(path + '\\lib\\config.txt'), 'w+')
+    config_file = open(os.path.join(path + '/lib/config.txt'), 'w+')
 
     config_file.write('local_dir=' + path)
 
     config_file.close()
 
-    if not os.path.exists(os.path.join(path + '\\reprocessing_examp.py')):
-        shutil.copyfile(LifPy_path + '\\reprocessing_examp.py', os.path.join(path + '\\reprocessing_examp.py'))
+    if not os.path.exists(os.path.join(path + '/reprocessing_examp.py')):
+        shutil.copyfile(LifPy_path + '/reprocessing_examp.py', os.path.join(path + '/reprocessing_examp.py'))
 
-    if not os.path.exists(os.path.join(path + '\\diag_plots_examp.py')):
-        shutil.copyfile(LifPy_path + '\\diag_plots_examp.py', os.path.join(path + '\\diag_plots_examp.py'))
+    if not os.path.exists(os.path.join(path + '/diag_plots_examp.py')):
+        shutil.copyfile(LifPy_path + '/diag_plots_examp.py', os.path.join(path + '/diag_plots_examp.py'))
 
     for name in ['bin_data', 'HK_data', 'processed_data']:
-        lif_utils.generate_folder(path + '\\data\\%s' % name, use_local_dir=False)
+        lif_utils.generate_folder(path + '/data/%s' % name, use_local_dir=False)
 
     for name in ['diagnostics', 'calibrations']:
-        lif_utils.generate_folder(path + '\\figures\\%s' % name, use_local_dir=False)
+        lif_utils.generate_folder(path + '/figures/%s' % name, use_local_dir=False)
 
     print('The LIF processing environment has been successfully setup!')
 
 
-def reprocess_binary_data(log_start_datetime, HK_headers_dict, channel_format, bin_file_path='data\\bin_data'
-                          , HK_file_path='data\\HK_data', data_freq=10, skip_start=0, skip_end=0, ignore_first=False
+def reprocess_binary_data(log_start_datetime, HK_headers_dict, channel_format, bin_file_path='data/bin_data'
+                          , HK_file_path='data/HK_data', data_freq=10, skip_start=0, skip_end=0, ignore_first=False
                           , lag=0, channel_count=10):
 
-    config_path = (r'{}' + '\\lib\\config.txt').format(os.getcwd())
+    config_path = (r'{}' + '/lib/config.txt').format(os.getcwd())
     config = {var.split('=')[0]: var.split('=')[1] for var in open(config_path, 'rt').read().split('\n')}
 
-    HK_time_arr, HK_data = lif_utils.import_HK_data(config['local_dir'] + '\\' + HK_file_path)
+    HK_time_arr, HK_data = lif_utils.import_HK_data(config['local_dir'] + '/' + HK_file_path)
 
     # The misalligned file process corrects for the fact that the seed LD mode may be offset in some counts files
     # file_shift returns a list of files, the parameters in those files which need to be shifted and in which direction
 
-    file_shift = pd.read_csv(config['local_dir'] + '\\lib\\misalligned_files.txt', header=0, delimiter=',')
+    file_shift = pd.read_csv(config['local_dir'] + '/lib/misalligned_files.txt', header=0, delimiter=',')
 
     # Produces a list of filenames based off the directory specified
     file_list = [f for f in os.listdir(bin_file_path) if os.path.isfile(os.path.join(bin_file_path, f))]
@@ -133,15 +133,15 @@ def reprocess_binary_data(log_start_datetime, HK_headers_dict, channel_format, b
         tot_steps = len(binary_data_dict['time_ms']) - 1
 
         # counts number of files in processed data folder and generates an index based on this number
-        file_ind = str(len(os.listdir(config['local_dir'] + '\\data\\processed_data'))).zfill(2)
+        file_ind = str(len(os.listdir(config['local_dir'] + '/data/processed_data'))).zfill(2)
 
-        binary_file = open(config['local_dir'] + '\\data\\processed_data\\%s_LIF_processed_data_%s.txt'
+        binary_file = open(config['local_dir'] + '/data/processed_data/%s_LIF_processed_data_%s.txt'
                            % (file.split(sep="_")[1][0: 8], file_ind), 'w+')
 
         met_add = '\nReprocessed on: ' + dt.strftime(dt.now(), '%Y/%m/%d %H:%M:%S') + \
                   '\nTime reference: (seconds since 1904-01-01 00:00:00)\nPermalink to reprocess code: \n'
 
-        cts_met = '\n\n' + open(config['local_dir'] + '\\lib\\cts_metadata.txt').read() + met_add
+        cts_met = '\n\n' + open(config['local_dir'] + '/lib/cts_metadata.txt').read() + met_add
         binary_file.write(str(cts_met.count('\n') - 1) + cts_met + '\n')
 
         gen_headers = 'mac_time_s,lsr_pwr_on_mW,lsr_pwr_off_mW,lsr_pwr_mW,ref_on_cts,ref_off_cts,ref_cts_diff'
