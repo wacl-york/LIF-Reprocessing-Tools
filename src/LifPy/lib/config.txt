@@ -1,1 +1,0 @@
-local_dir=C:\Users\Jake\Documents\GitHub\LIF-Reprocessing-Tools\src\LifPy

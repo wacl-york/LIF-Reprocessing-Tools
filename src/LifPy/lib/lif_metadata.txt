@@ -1,0 +1,5 @@
+Author: Phin Petherick
+Organisation: University of York, Wolfson Atmospheric Chemistry Laboratory
+contact: phin.petherick@york.ac.uk
+Instrument ID: Dual Channel NO-LIF
+label: Mace Head CARES Data
