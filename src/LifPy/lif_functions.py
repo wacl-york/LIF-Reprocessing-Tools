@@ -8,13 +8,23 @@ from itertools import islice
 from sklearn.linear_model import LinearRegression
 import matplotlib.pyplot as plt
 
+"""
+This first section contains all of the sub-functions that are subsequently 
+called from the reprocess_binary_data function. This generates processed data 
+files containing on, off and diff counts data (both unnormalised for laser 
+power and normalised for laser power) for each of the channels, as well as any 
+HK data that has been specified.The function can be called with a data 
+frequency of 10 (calculated 10Hz data using the online and offline points) or 
+100 (showing all 100Hz data for visual inspection).
 
+"""
 def find_min_ind(target, array, start=0, end='full'):
     """
     Finds the index of the element in a segment of an array that is closest to 
     a target value.
     The index returned is relative to the start of the segmented array, not 
     the original array.
+    This is a helper function that is called in various places.
 
     Parameters
     ----------
@@ -458,41 +468,6 @@ def lag_correction(file, bin_file_list, bin_data_dict, lag_override, HK_data):
         else:
             HK_data['Time_s'] = HK_data['Time_s'] - int((lag_override / 2) 
                                                             + 0.5)
-
-def gen_cts_ind(binary_data_dict):
-    """
-    Generates index arrays for linearized and normalized signal count channels 
-    within the binary data dictionary.
-
-    Parameters
-    ----------
-    binary_data_dict : dict
-        The dictionary containing processed binary data, where keys are channel 
-        names (strings) and values are data arrays.
-
-    Returns
-    -------
-    tuple of list of int
-        - cts_ind_arr (list of int): Indices corresponding to channel names 
-          containing both 'sig_counts' and '_lin'.
-        - cts_ind_arr_norm (list of int): Indices corresponding to channel 
-          names containing both 'sig_counts' and '_norm'.
-
-    Notes
-    -----
-    The indices returned are the zero-based positional indices within the list 
-    of keys/headers of the binary_data_dict.
-    """
-    
-    cts_ind_arr = [i for i in range(0, len(list(binary_data_dict)))
-                       if 'sig_counts' in list(binary_data_dict)[i]
-                           and '_lin' in list(binary_data_dict)[i]]
-    
-    cts_ind_arr_norm = [i for i in range(0, len(list(binary_data_dict))) 
-                            if 'sig_counts' in list(binary_data_dict)[i]
-                                and '_norm' in list(binary_data_dict)[i]]
-    
-    return cts_ind_arr, cts_ind_arr_norm
  
 def gen_output_file(working_dir, file, channel_format, HK_headers_dict
                     , HK_data, date):
@@ -561,8 +536,10 @@ def gen_output_file(working_dir, file, channel_format, HK_headers_dict
                ',ref_off_cts_norm,ref_diff_cts_norm'
                )
                        
-   cts_labels = [name.split('_')[0] + '_' + name.split('_')[-1] 
-                 for name in list(channel_format) if '_counts_' in name]
+   cts_labels = [name.split('_')[0] + ('_' + name.split('_')[1] if len(name.split('_')) > 2 else '')
+                 for name in list(channel_format)
+                 if '_counts' in name and not name.startswith('ref_')
+                 ]
    
    cts_headers = ','.join(['%s_on_cts,%s_off_cts,%s_diff_cts'
                            % (label, label, label) for label in cts_labels]) 
@@ -649,8 +626,7 @@ def align_bin_HK(bin_data_dict, log_start_datetime_seconds, HK_data):
     
 def gen_output_data(channel_format, bin_data_dict, HK_data, HK_headers_dict, 
                     data_freq, bin_time_arr, HK_start_ind, HK_end_ind, 
-                    nan_data, processed_file, shift_correction, cts_ind_arr,
-                    cts_ind_arr_norm):
+                    nan_data, processed_file, shift_correction, histograms):
     """
     Processes, averages, aligns, and writes binary and Housekeeping (HK) data 
     to the output file, supporting both 10Hz averaged data and 100Hz 
@@ -696,6 +672,14 @@ def gen_output_data(channel_format, bin_data_dict, HK_data, HK_headers_dict,
     None
         Data is written directly to the processed_file (side effect).
     """
+    cts_ind_arr = [i for i in range(0, len(list(bin_data_dict)))
+                       if 'sig_' in list(bin_data_dict)[i]
+                           and '_lin' in list(bin_data_dict)[i]]
+    
+    cts_ind_arr_norm = [i for i in range(0, len(list(bin_data_dict))) 
+                            if 'sig_' in list(bin_data_dict)[i]
+                                and '_norm' in list(bin_data_dict)[i]]
+
     #pre fetching arrays for faster access in the loop
     bin_time_ms = bin_data_dict['time_ms']
     seed_LD_mode = bin_data_dict['seed_LD_mode']
@@ -712,6 +696,14 @@ def gen_output_data(channel_format, bin_data_dict, HK_data, HK_headers_dict,
     tot_steps = len(bin_time_ms) - 1
     iter_range = iter(range(tot_steps))
     output_lines = []
+    histogram_on = []
+    histogram_off = []
+    no_dropped_online = 0
+    one_dropped_online = 0
+    two_dropped_online = 0
+    no_dropped_offline = 0
+    one_dropped_offline = 0
+    processed_points = 0
 
     for i in iter_range: 
         
@@ -750,11 +742,13 @@ def gen_output_data(channel_format, bin_data_dict, HK_data, HK_headers_dict,
             # In seed LD mode, 5 defines offline point, 6 defines online point
             if seed_LD_mode[i + shift_correction] == 6 and \
             seed_LD_mode[i + 1 + shift_correction] == 5: 
-                if bin_time_ms[i] - bin_time[-1] != 0: 
+                if (bin_time_ms[i] - bin_time[-1] != 0) and (i >= 7): 
                     bin_time.append(bin_time_ms[i]) 
                     
                     cts_wrt_list = []
                     cts_wrt_list_norm = []
+                    
+                    processed_points += 1
                     
                     if ref_counts_norm[i - 7] < \
                         np.mean(ref_counts_norm[i - 6: i + 1]) \
@@ -762,30 +756,53 @@ def gen_output_data(channel_format, bin_data_dict, HK_data, HK_headers_dict,
                         or ref_counts_norm[i - 7] > \
                         np.mean(ref_counts_norm[i - 6: i + 1]) \
                         + 3 * np.std(ref_counts_norm[i - 6: i + 1]):
-                            offset = 6   # removes  first online point
+                            if ref_counts_norm[i - 6] < \
+                                np.mean(ref_counts_norm[i - 5: i + 1]) \
+                                - 3 * np.std(ref_counts_norm[i - 5: i + 1]) \
+                                or ref_counts_norm[i - 6] > \
+                                np.mean(ref_counts_norm[i - 5: i + 1]) \
+                                + 3 * np.std(ref_counts_norm[i - 5: i + 1]):
+                                    online_offset = 5   # removes  first 2 online points
+                                    two_dropped_online += 1
+                            else: 
+                                online_offset = 6 # removes first online point
+                                one_dropped_online += 1
                     else:
-                            offset = 7                                  
-                            
+                            online_offset = 7  # keeps all online points  
+                            no_dropped_online += 1                              
+                    
+                        
+                    if ref_counts_norm[i + 1] > 1.5 * ref_counts_norm[i + 2]:
+                        offline_offset = 2
+                        one_dropped_offline += 1
+                    else:
+                        offline_offset = 3
+                        no_dropped_offline += 1
+                        
+                    
     
-                    on_cts_ref = np.mean(ref_counts[i - offset: i + 1]
+                    on_cts_ref = np.mean(ref_counts[i - online_offset: i + 1]
                         ) * 10 * data_freq
-                    off_cts_ref = np.mean(ref_counts[i + 1: i + 3]
+                    off_cts_ref = np.mean(ref_counts[i + 1: i + offline_offset]
                         ) * 10 * data_freq
                     cts_diff_ref = on_cts_ref - off_cts_ref
                     
-                    on_cts_ref_norm = np.mean(ref_counts_norm[i - offset: i + 1]
+                    on_cts_ref_norm = np.mean(ref_counts_norm[i - online_offset: i + 1]
                         ) * 10 * data_freq
-                    off_cts_ref_norm = np.mean(ref_counts_norm[i + 1: i + 3]
+                    off_cts_ref_norm = np.mean(ref_counts_norm[i + 1: i + offline_offset]
                         ) * 10 * data_freq
                     cts_diff_ref_norm = on_cts_ref_norm - off_cts_ref_norm
+                    
+                    histogram_on.append(on_cts_ref_norm)
+                    histogram_off.append(off_cts_ref_norm)
     
     
                     for channel_data in cts_channel_data:
                         on_cts = np.mean(
-                            channel_data[i - offset: i + 1]
+                            channel_data[i - online_offset: i + 1]
                             ) * 10 * data_freq
                         off_cts = np.mean(
-                            channel_data[i + 1: i + 3]
+                            channel_data[i + 1: i + offline_offset]
                             ) * 10 * data_freq
                         cts_diff = on_cts - off_cts
                         cts_wrt_list.append(
@@ -794,10 +811,10 @@ def gen_output_data(channel_format, bin_data_dict, HK_data, HK_headers_dict,
     
                     for channel_data in cts_norm_channel_data:
                         on_cts_norm = np.mean(
-                            channel_data[i - offset: i + 1]
+                            channel_data[i - online_offset: i + 1]
                             ) * 10 * data_freq
                         off_cts_norm = np.mean(
-                            channel_data[i + 1: i + 3]
+                            channel_data[i + 1: i + offline_offset]
                             ) * 10 * data_freq
                         cts_diff_norm = on_cts_norm - off_cts_norm
                         cts_wrt_list_norm.append(
@@ -805,10 +822,10 @@ def gen_output_data(channel_format, bin_data_dict, HK_data, HK_headers_dict,
                             )
                     
                     on_lsr_pwr = np.mean(
-                        laser_pwr_PT0[i - offset: i + 1]
+                        laser_pwr_PT0[i - online_offset: i + 1]
                         )
                     off_lsr_pwr = np.mean(
-                        laser_pwr_PT0[i + 1: i + 3]
+                        laser_pwr_PT0[i + 1: i + offline_offset]
                         )
                     lsr_pwr = np.mean([on_lsr_pwr, off_lsr_pwr])
     
@@ -848,11 +865,40 @@ def gen_output_data(channel_format, bin_data_dict, HK_data, HK_headers_dict,
          
     processed_file.write(''.join(output_lines))     
 
+    print(f'\npercentage of no dropped online points = {((no_dropped_online/processed_points)*100): .2f}'
+          f'\npercentage of one dropped online point = {((one_dropped_online/processed_points)*100): .2f}'
+          f'\npercentage of two dropped online points = {((two_dropped_online/processed_points)*100): .2f}'
+          f'\npercentage of first offline points kept = {((no_dropped_offline/processed_points)*100): .2f}'
+          f'\npercentage of first offline points dropped = {((one_dropped_offline/processed_points)*100): .2f}'
+          )
+    if histograms:
+        
+        histogram_off_array = np.array(histogram_off)
+        histogram_off_array = histogram_off_array[np.isfinite(histogram_off_array)]
+        histogram_on_array = np.array(histogram_on)
+        histogram_on_array = histogram_on_array[np.isfinite(histogram_on_array)]
+        
+        fig, (ax1, ax2) = plt.subplots(nrows=1, ncols=2, figsize=(10,4))
+        
+        ax1.hist(histogram_on_array, bins=100, color='blue')
+        ax1.set_title('ref on cts (laser power normalised)')
+        ax1.set_xlabel('counts')
+        ax1.set_ylabel('Frequency')
+        
+        ax2.hist(histogram_off_array, bins=100, color='red')
+        ax2.set_title('ref off cts (laser power normalised)')
+        ax2.set_xlabel('counts')
+        ax2.set_ylabel('Frequency')
+        
+        plt.tight_layout()
+        plt.show()
+
 def reprocess_binary_data(log_start_datetime, date, HK_headers_dict
                           , channel_format, working_dir, bin_file_path='data_bin'
                           , HK_file_path='data_HK', data_freq=10
                           , skip_start_HK=0, skip_end_HK=0, skip_start_bin=0
-                          , skip_end_bin=0, lag_override=0, channel_count=10):
+                          , skip_end_bin=0, lag_override=0, channel_count=10
+                          , histograms=False):
      
     working_dir = working_dir
     HK_data = import_HK_data(
@@ -884,9 +930,6 @@ def reprocess_binary_data(log_start_datetime, date, HK_headers_dict
         lag_correction(
             file, bin_file_list, bin_data_dict, lag_override, HK_data
             )
-        cts_ind_arr, cts_ind_arr_norm = gen_cts_ind(
-            bin_data_dict
-            )
         processed_file, nan_data = gen_output_file(
             working_dir, file, channel_format, HK_headers_dict, HK_data, date
             )
@@ -896,17 +939,25 @@ def reprocess_binary_data(log_start_datetime, date, HK_headers_dict
         gen_output_data(
             channel_format, bin_data_dict, HK_data, HK_headers_dict, data_freq
             , bin_time_arr, HK_start_ind, HK_end_ind, nan_data, processed_file
-            , shft_correction, cts_ind_arr, cts_ind_arr_norm
+            , shft_correction, histograms
             )
 
+
+"""
+This section contains all of the sub-functions that are used in the analysis 
+stage of data processing.
+
+"""
+
 def read_processed_files(path):
+    
     
     dfs = []
     
     for root, dirs, files in os.walk(path):
     
         file_list = [f for f in files 
-                     if f.startswith('2025') 
+                     if f.startswith('20')
                      and f.endswith('.txt')]
         
         for file in file_list:
@@ -919,9 +970,11 @@ def read_processed_files(path):
                 
     if not dfs:
         print("No files found or processed.")
-        return pd.DataFrame()       
+        return pd.DataFrame()      
     
-    cts_data = pd.concat(dfs, ignore_index=True)
+    dfs_filtered = [df for df in dfs if not df.empty]
+    
+    cts_data = pd.concat(dfs_filtered, ignore_index=True)
 
     #replacing -9999 with nan
     cts_data.replace(-9999, np.nan, inplace=True)
@@ -935,24 +988,124 @@ def read_processed_files(path):
     cts_data = cts_data.sort_values(by='Date_time')
 
     return cts_data
-          
-def gen_cal_files(path):
-    
-    with open(path + 'cell_A_cal_data.txt', 'w', newline='') as txtfile:
-            fieldnames = ['cal_start_date_time', 'avg_lsr_pwr', 'cell_A_R2'
-                          , 'cell_A_slope', 'cell_A_intercept', 'cell_A_R2_ref_norm'
-                          , 'cell_A_slope_ref_norm', 'cell_A_intercept_ref_norm']
-            header_row = ','.join(fieldnames)
-            txtfile.write(header_row + '\n')
-            
-    with open(path + 'cell_B_cal_data.txt', 'w', newline='') as txtfile:
-            fieldnames = ['cal_start_date_time', 'avg_lsr_pwr', 'cell_B_R2'
-                          , 'cell_B_slope', 'cell_B_intercept', 'cell_B_R2_ref_norm'
-                          , 'cell_B_slope_ref_norm', 'cell_B_intercept_ref_norm']
-            header_row = ','.join(fieldnames)
-            txtfile.write(header_row + '\n')
 
-def Analyse_cals(all_data, plot, max_conc, cell):
+def ref_normalise(data, channels):
+    
+    data = data.copy()
+    
+    for channel in channels:
+        
+        data[f'{channel}_diff_cts_ref_norm'] = data[f'{channel}_diff_cts_norm'] / data['ref_diff_cts_norm']
+    
+    return data
+
+def set_flags(data, pre_TS, post_TS, pre_PF, post_PF, ref_cts_limit):
+    data = data.reset_index()
+    data['Peak_find_flag'] = 0
+    data["Task_Change"] = data.Task.shift() != data.Task
+    Task_switch_lst = data.index[data.Task_Change].tolist()
+
+    for dt_pt in data.index:
+        if data['ref_diff_cts_norm'][dt_pt] < ref_cts_limit:
+            try:
+                data.loc[dt_pt-pre_PF:dt_pt+post_PF, 'Peak_find_flag'] = 1
+            except:
+                data.loc[:dt_pt+post_PF, 'Peak_find_flag'] = 1
+                print('Ref filter error index '+str(dt_pt))
+        if dt_pt > 0 and dt_pt in Task_switch_lst: 
+            data.loc[dt_pt-pre_TS:dt_pt+post_TS, 'Task'] = 8
+    data.index = data['Date_time'] 
+    return(data)   
+
+def set_flags_vectorised(data, pre_TS, post_TS, pre_PF, post_PF, ref_cts_limit):
+    
+    data = data.reset_index(drop=True)
+    peak_flag_array = np.zeros(len(data), dtype=int)
+    data["Task_Change"] = data.Task.shift() != data.Task
+    task_switch_indices = data.index[data['Task_Change']].to_numpy()
+    
+    condition_mask = data['ref_diff_cts_norm'] < ref_cts_limit
+    condition_indices = data.index[condition_mask].to_numpy()
+    
+    for index in condition_indices:
+        start = max(0, index - pre_PF)
+        end = min(len(data) - 1, index + post_PF)
+        
+        peak_flag_array[start:end+1] = 1
+    
+    data['Peak_find_flag'] = peak_flag_array
+    
+    task_array = data['Task'].to_numpy()
+    
+    for index in task_switch_indices:
+        if index > 0:
+            start = max(0, index - pre_TS)
+            end = min(len(data) - 1, index + post_TS)
+
+            task_array[start:end+1] = 8 
+            
+    data['Task'] = task_array
+    
+    data.index = data['Date_time']
+    data = data.drop(columns=['Task_Change'])
+    
+    return data
+
+def zero_correct(cts_data, channels, plot=False):
+    
+    cts_data = cts_data.copy()
+    
+    for channel in channels:
+    
+        cts_data_zero = cts_data[(cts_data['Task']==4) & (cts_data['Peak_find_flag']==0)].copy()
+        
+        column_name = f'{channel}_diff_cts_norm'
+        
+        data_series = cts_data_zero[column_name]
+        mean_val = np.nanmean(data_series)
+        std_val = np.nanstd(data_series)
+                
+        lower_limit = mean_val - 10 * std_val
+        upper_limit = mean_val + 10 * std_val
+
+        
+        spike_mask = (data_series > lower_limit) & (data_series < upper_limit)
+        cts_data_zero = cts_data_zero[spike_mask].copy()
+        mean_zero = np.nanmean(cts_data_zero[column_name])
+    
+        print(f"{channel} mean zero is {mean_zero} cts mW-1 s-1")
+    
+        
+        if plot:
+            
+            fig, ax = plt.subplots(2, 2, figsize=(14, 6))
+    
+            ax[0,0].plot(cts_data_zero['Date_time'], cts_data_zero[f'{channel}_diff_cts_norm'])
+            ax[0,0].set_xlabel('Date_time')
+            ax[0,0].set_ylabel(f'{channel}_diff_cts')
+            ax[0,0].set_title(f'{channel} diff counts zero')
+    
+            ax[0,1].plot(cts_data_zero['Date_time'], cts_data_zero[f'{channel}_diff_cts_ref_norm'])
+            ax[0,1].set_xlabel('Date_time')
+            ax[0,1].set_ylabel(f'{channel}_diff_cts_ref_norm')
+            ax[0,1].set_title(f'{channel} diff counts ref norm zero')
+    
+            ax[1,0].hist(cts_data_zero[f'{channel}_diff_cts_norm'], bins=50)
+            ax[1,0].set_xlabel(f'{channel}_diff_cts')
+    
+            ax[1,1].hist(cts_data_zero[f'{channel}_diff_cts_ref_norm'], bins=50)
+            ax[1,1].set_xlabel(f'{channel}_diff_cts_ref_norm')          
+            
+            plt.show()
+            
+        
+        cts_data[f'{channel}_diff_cts_norm_zero_corr'] = cts_data[f'{channel}_diff_cts_norm'] - mean_zero
+        cts_data[f'{channel}_diff_cts_ref_norm_zero_corr'] = (
+                                            cts_data[f'{channel}_diff_cts_norm_zero_corr']/cts_data['ref_diff_cts']
+                                            )
+    return cts_data
+    
+def analyse_cals(all_data, plot, max_conc, cell, path, molecule):
     """
     Analyzes calibration data for a specified cell by identifying
     individual calibration events, applying data cleaning, and performing
@@ -998,55 +1151,79 @@ def Analyse_cals(all_data, plot, max_conc, cell):
       filtered calibration period to ensure steady-state conditions.
     """
     
+    file_path = path + f'cell_{cell}_cal_data.txt'
+    
+    if not os.path.exists(file_path):
+        with open(file_path, 'w', newline='') as txtfile:
+                fieldnames = ['cal_start_date_time', 'avg_lsr_pwr', f'cell_{cell}_R2'
+                              , f'cell_{cell}_slope', f'cell_{cell}_intercept', f'cell_{cell}_R2_ref_norm'
+                              , f'cell_{cell}_slope_ref_norm', f'cell_{cell}_intercept_ref_norm']
+                header_row = ','.join(fieldnames)
+                txtfile.write(header_row + '\n')    
+    
+    print(f'\nidentifying cals, cell {cell}')
+    
     cts_diff_v = f'sig_{cell}_diff_cts'
     cts_diff_refnorm_v = f'sig_{cell}_diff_cts_ref_norm'
-    data = all_data[[cts_diff_v, cts_diff_refnorm_v, 'NO_mr', 'Task'
-                     , 'Cal_NO_MFC_Read', 'Cal_SB_MFC_Read', 'Cal_NO_MFC_set'
+    data = all_data[[cts_diff_v, cts_diff_refnorm_v, f'{molecule}_mr', 'Task'
+                     , f'Cal_{molecule}_MFC_Read', 'Cal_SB_MFC_Read', f'Cal_{molecule}_MFC_set'
                      , 'Date_time', 'lsr_pwr_mW']].copy()
     data.replace([np.inf, -np.inf], np.nan, inplace=True)
     data = data.reset_index(drop=True)
-    data['Cal_Sig_diff_cts_ref_norm'] = data[cts_diff_refnorm_v].where(
+    data['cal_sig_diff_cts_ref_norm'] = data[cts_diff_refnorm_v].where(
         data['Task'] == 5
         )
-    data['Cal_true_ppt'] = data['NO_mr'].where(
+    data['cal_true_ppt'] = data['NO_mr'].where(
         (data.Task == 5) & (data['Cal_SB_MFC_Read'] < 0.01)
         )
-    data['Cal_group'] = np.nan
+    data['cal_group'] = np.nan
     data['cal_start_time'] = pd.NaT
     cal_num = 0
     cal_group_start_times = {}
-    
+    tot_steps = len(data.index) - 1
 
     
     for i in data.index:
         
-        if (i > 0 and pd.notnull(data['Cal_true_ppt'][i]) 
-            and pd.isnull(data['Cal_true_ppt'][max(0, i-3000):i].mean())):
+        if i % 1000 == 0:
+            print('\r%.2f' % (abs(1 - (tot_steps - i) / tot_steps) * 100)
+                  , end='')
+        
+        if (i > 0 and pd.notnull(data['cal_true_ppt'][i]) 
+            and pd.isnull(data['cal_true_ppt'][max(0, i-3000):i].mean())):
             cal_num += 1
             cal_group_start_times[cal_num] = data.loc[i, 'Date_time']
             data.loc[i, 'cal_start_time'] = data.loc[i, 'Date_time']
-        if (pd.notnull(data['Cal_true_ppt'][i]) 
-            and pd.notnull(data['Cal_true_ppt'][max(0, i-3001):max(0, i-100)].mean())):
-            data.loc[i, 'Cal_group'] = cal_num
-            
+        if (pd.notnull(data['cal_true_ppt'][i]) 
+            and pd.notnull(data['cal_true_ppt'][max(0, i-3001):max(0, i-100)].mean())):
+            data.loc[i, 'cal_group'] = cal_num
+     
+        
 
-    backward_mean = data['Cal_true_ppt'].rolling(window=200).mean().shift(1)
-    backward_std = data['Cal_true_ppt'].rolling(window=200).std().shift(1)
-    forward_mean = data['Cal_true_ppt'][::-1].rolling(window=200).mean()[::-1]
+    backward_mean = data['cal_true_ppt'].rolling(window=200).mean().shift(1)
+    backward_std = data['cal_true_ppt'].rolling(window=200).std().shift(1)
+    forward_mean = data['cal_true_ppt'][::-1].rolling(window=200).mean()[::-1]
     mask = (forward_mean > backward_mean + backward_std/2) | \
        (forward_mean < backward_mean - backward_std/2)
-    data.loc[mask, 'Cal_true_ppt'] = np.nan
+    data.loc[mask, 'cal_true_ppt'] = np.nan
+
+    print('\nnumber of cals =', cal_num )
 
     Refnorm_cal_vars = {}
     std_cal_vars = {}
-    fig, axs = plt.subplots(4, cal_num, figsize=(6*cal_num, 12))
+    fig, axs = None, None
+
+    if plot:
+        fig, axs = plt.subplots(4, cal_num, figsize=(6 * cal_num, 12))
 
     for cal in range(1,cal_num+1):
         
+        print(f'\ranalysing cal {cal}', end='')
+        
         current_cal_start_time = cal_group_start_times.get(cal, None)
         
-        cal_tmp_df = data[(data['Cal_group'] == cal)].copy().dropna(
-           subset=[cts_diff_v, cts_diff_refnorm_v, 'NO_mr', 'Cal_true_ppt'
+        cal_tmp_df = data[(data['cal_group'] == cal)].copy().dropna(
+           subset=[cts_diff_v, cts_diff_refnorm_v, 'NO_mr', 'cal_true_ppt'
                    , 'Cal_NO_MFC_set', 'lsr_pwr_mW']
         )
         
@@ -1058,10 +1235,10 @@ def Analyse_cals(all_data, plot, max_conc, cell):
             if (cal_tmp_df['cal_flow_diff'][cal_pt] > 0.05):
                 cal_tmp_df.loc[cal_pt-1:cal_pt+10,'point_filter'] = 1
         cal_tmp_df = cal_tmp_df[(cal_tmp_df['point_filter'] == 0) 
-                                & (cal_tmp_df['Cal_true_ppt'] < max_conc)]
+                                & (cal_tmp_df['cal_true_ppt'] < max_conc)]
         if cal_tmp_df.shape[0] > 100:
-            X = cal_tmp_df['Cal_true_ppt'][300:].values.reshape(-1, 1)
-            Y = cal_tmp_df['Cal_Sig_diff_cts_ref_norm'][300:].values.reshape(-1, 1)
+            X = cal_tmp_df['cal_true_ppt'][300:].values.reshape(-1, 1)
+            Y = cal_tmp_df['cal_sig_diff_cts_ref_norm'][300:].values.reshape(-1, 1)
             linear_regressor = LinearRegression()
             reg = linear_regressor.fit(X, Y)
             Y_pred = linear_regressor.predict(X)
@@ -1114,7 +1291,7 @@ def Analyse_cals(all_data, plot, max_conc, cell):
             new_data_to_append_df = pd.DataFrame(new_data_to_append)
             
             new_data_to_append_df.to_csv(
-                f'cell_{cell}_cal_data.txt', mode='a', header=False
+                file_path, mode='a', header=False
                 , index=False, sep=','
                 )
             
@@ -1135,7 +1312,7 @@ def Analyse_cals(all_data, plot, max_conc, cell):
                 # --- Third Plot ---
                 # Plot on the third subplot (axs[2])
                 axs[2,cal-1].plot(
-                    cal_tmp_df.index, cal_tmp_df['Cal_Sig_diff_cts_ref_norm']
+                    cal_tmp_df.index, cal_tmp_df['cal_sig_diff_cts_ref_norm']
                     )
                 axs[2,cal-1].set_title(f'Ref norm cal {cal} Cell {cell}')
 
@@ -1144,12 +1321,10 @@ def Analyse_cals(all_data, plot, max_conc, cell):
                 axs[3,cal-1].scatter(X, Y)
                 axs[3,cal-1].plot(X, Y_pred, color='red')
                 axs[3,cal-1].set_title(f'Ref norm cal {cal} Cell {cell}')
-
-                # Adjust the layout to prevent titles and labels from overlapping
-                plt.tight_layout()
     
     # Display the combined figure
     if plot:
+        plt.tight_layout()
         plt.show()
     
     Std_cal_summary = pd.DataFrame(std_cal_vars).transpose()
@@ -1170,7 +1345,7 @@ def Analyse_cals(all_data, plot, max_conc, cell):
     
     return(Std_cal_summary, Refnorm_cal_summary)
 
-def Analyse_BLC_cals(all_data, plot): 
+def analyse_BLC_cals(all_data, plot): 
     
     data = all_data[['sig_B_diff_cts', 'sig_B_diff_cts_ref_norm', 'Task', 'Date_time', 'BLC_0_flag', 'BLC_1_flag']].copy()
     data.replace([np.inf, -np.inf], np.nan, inplace=True)
@@ -1187,8 +1362,7 @@ def Analyse_BLC_cals(all_data, plot):
             BLC_cal_group_start_times[BLC_cal_num] = data.loc[i, 'Date_time']
         if (pd.notnull(data['BLC_Cal_Sig_diff_cts_ref_norm'][i]) and pd.notnull(data['BLC_Cal_Sig_diff_cts_ref_norm'][max(0, i-3010):max(0, i-100)].mean())):
             data.loc[i, 'BLC_Cal_group'] = BLC_cal_num
-    Refnorm_cal_vars = {}
-    std_cal_vars = {}
+            
     fig, axs = plt.subplots(1, BLC_cal_num, figsize=(6*BLC_cal_num, 4))
     
     for cal in range(1,BLC_cal_num+1):
@@ -1231,23 +1405,7 @@ def Analyse_BLC_cals(all_data, plot):
     # Display the combined figure
     plt.show()
 
-def set_flags(data, pre_TS, post_TS, pre_PF, post_PF, ref_cts_limit):
-    data = data.reset_index()
-    data['Peak_find_flag'] = 0
-    data["Task_Change"] = data.Task.shift() != data.Task
-    Task_switch_lst = data.index[data.Task_Change].tolist()
 
-    for dt_pt in data.index:
-        if data['ref_diff_cts_norm'][dt_pt] < ref_cts_limit:
-            try:
-                data.loc[dt_pt-pre_PF:dt_pt+post_PF, 'Peak_find_flag'] = 1
-            except:
-                data.loc[:dt_pt+post_PF, 'Peak_find_flag'] = 1
-                print('Ref filter error index '+str(dt_pt))
-        if dt_pt > 0 and dt_pt in Task_switch_lst: 
-            data.loc[dt_pt-pre_TS:dt_pt+post_TS, 'Task'] = 8
-    data.index = data['Date_time'] 
-    return(data)
 
 
 

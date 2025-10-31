@@ -25,13 +25,13 @@ for i in processing_variables.index:
                              , 'Ref_NO_MFC_Read', 'BLC_0_flag', 'BLC_1_flag'] 
         , channel_count = 11 # 10 = single channel, 11 = dual channel
         , channel_format = {
-            'sig_counts_A': 0
+            'sig_A_counts': 0
             , 'ref_counts': 1
             , 'seed_LD_current': 2
             , 'laser_pwr_PT0': [3, 4]
             , 'time_ms': [7, 8]
             , 'seed_LD_mode': 9
-            , 'sig_counts_B': 10
+            , 'sig_B_counts': 10
         }
         , skip_start_bin = processing_variables['skip_start_bin'][i] 
         , skip_end_bin = processing_variables['skip_end_bin'][i]  
