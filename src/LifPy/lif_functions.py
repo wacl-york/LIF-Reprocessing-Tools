@@ -97,7 +97,7 @@ def import_HK_data(HK_file_path, skip_start_HK=0, skip_end_HK=0):
     print('\nreading HK files:\n')
 
     for file in range(skip_start_HK, len(file_list) - skip_end_HK):
-        print(file_list[file])
+        print(f'\r{file_list[file]}', end='')
         file_data = pd.read_csv(HK_file_path + '/' + file_list[file], \
                                 delimiter=r'\s+', header=0)
 
@@ -894,12 +894,67 @@ def gen_output_data(channel_format, bin_data_dict, HK_data, HK_headers_dict,
         plt.show()
 
 def reprocess_binary_data(log_start_datetime, date, HK_headers_dict
-                          , channel_format, working_dir, bin_file_path='data_bin'
-                          , HK_file_path='data_HK', data_freq=10
-                          , skip_start_HK=0, skip_end_HK=0, skip_start_bin=0
-                          , skip_end_bin=0, lag_override=0, channel_count=10
-                          , histograms=False):
-     
+                          , channel_format, working_dir
+                          , bin_file_path='data_bin', HK_file_path='data_HK'
+                          , data_freq=10, skip_start_HK=0, skip_end_HK=0
+                          , skip_start_bin=0, skip_end_bin=0, lag_override=0
+                          , channel_count=10, histograms=False):
+    """
+    This function calls all of the other sub-functions above, to read and 
+    process the binary and HK files into counts data in a readable csv format.
+    
+    Parameters
+    ----------
+    log_start_datetime : str
+        The log time of the corresponding LIF system restart.
+    date : str
+        The date associated with the data being processed in the form 'YYYYMMDD'
+    HK_headers_dict : dict
+        A dictionary containing information about the Housekeeping data 
+        headers/channels.
+    channel_format : list
+        A list or array defining the format and types of the data channels 
+        within the binary files.
+    working_dir : str
+        The base directory where the binary data and output files are located.
+    bin_file_path : str, optional
+        The sub-directory path within `working_dir` where the raw binary files 
+        reside. The default is 'data_bin'.
+    HK_file_path : str, optional
+       The sub-directory path within `working_dir` where the HK files reside. 
+       The default is 'data_HK'. 
+    data_freq : int, optional
+        The frequency of data to be returned, can be 10 or 100 HZ. The default 
+        is 10.
+    skip_start_HK : int, optional
+        Number of HK data files to skip at the beginning of the specified 
+        folder. The default is 0.
+    skip_end_HK : int, optional
+        Number of HK data files to skip at the end of the specified folder. The 
+        default is 0.
+    skip_start_bin : int, optional
+        Number of binary data files to skip at the beginning of the specified 
+        folder. The default is 0.
+    skip_end_bin : int, optional
+        Number of binary data files to skip at the end of the specified folder. The 
+        default is 0
+    lag_override : int, optional
+        A manual override value for the time lag correction, if needed. The 
+        default is 0.
+    channel_count : int, optional
+        The total number of channels in the binary data. The default is 10.
+    histograms : bool, optional
+        Flag to indicate whether histograms should be generated during 
+        processing. The default is False.
+    
+    Returns
+    -------
+    None
+        The function performs file operations and generates output files but does not
+        explicitly return a value.
+    
+    """
+    
     working_dir = working_dir
     HK_data = import_HK_data(
         working_dir + '\\' + HK_file_path
@@ -997,27 +1052,9 @@ def ref_normalise(data, channels):
         
         data[f'{channel}_diff_cts_ref_norm'] = data[f'{channel}_diff_cts_norm'] / data['ref_diff_cts_norm']
     
-    return data
+    return data 
 
 def set_flags(data, pre_TS, post_TS, pre_PF, post_PF, ref_cts_limit):
-    data = data.reset_index()
-    data['Peak_find_flag'] = 0
-    data["Task_Change"] = data.Task.shift() != data.Task
-    Task_switch_lst = data.index[data.Task_Change].tolist()
-
-    for dt_pt in data.index:
-        if data['ref_diff_cts_norm'][dt_pt] < ref_cts_limit:
-            try:
-                data.loc[dt_pt-pre_PF:dt_pt+post_PF, 'Peak_find_flag'] = 1
-            except:
-                data.loc[:dt_pt+post_PF, 'Peak_find_flag'] = 1
-                print('Ref filter error index '+str(dt_pt))
-        if dt_pt > 0 and dt_pt in Task_switch_lst: 
-            data.loc[dt_pt-pre_TS:dt_pt+post_TS, 'Task'] = 8
-    data.index = data['Date_time'] 
-    return(data)   
-
-def set_flags_vectorised(data, pre_TS, post_TS, pre_PF, post_PF, ref_cts_limit):
     
     data = data.reset_index(drop=True)
     peak_flag_array = np.zeros(len(data), dtype=int)
@@ -1074,6 +1111,10 @@ def zero_correct(cts_data, channels, plot=False):
         mean_zero = np.nanmean(cts_data_zero[column_name])
     
         print(f"{channel} mean zero is {mean_zero} cts mW-1 s-1")
+        
+        cts_data_zero = cts_data_zero.set_index('Date_time')
+        cts_data_zero = cts_data_zero.resample('12h').mean()
+        cts_data_zero = cts_data_zero.reset_index()
     
         
         if plot:
@@ -1103,7 +1144,7 @@ def zero_correct(cts_data, channels, plot=False):
         cts_data[f'{channel}_diff_cts_ref_norm_zero_corr'] = (
                                             cts_data[f'{channel}_diff_cts_norm_zero_corr']/cts_data['ref_diff_cts']
                                             )
-    return cts_data
+    return cts_data_zero, cts_data
     
 def analyse_cals(all_data, plot, max_conc, cell, path, molecule):
     """

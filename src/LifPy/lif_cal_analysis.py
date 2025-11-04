@@ -30,21 +30,30 @@ cts_data['NO_mr'] = (cts_data["Cal_NO_MFC_Read"] / (cts_data["NO_Cell_Flow"]+cts
 
 cts_data_ref_norm = lif.ref_normalise(cts_data, channels=['sig_A', 'sig_B'])
 
-cts_data_flagged = lif.set_flags_vectorised(cts_data_ref_norm, pre_taskswitch, post_taskswitch, pre_peakfind, post_peakfind, ref_cts_diff_limit)
+cts_data_flagged = lif.set_flags(cts_data_ref_norm, pre_taskswitch, post_taskswitch, pre_peakfind, post_peakfind, ref_cts_diff_limit)
 
-cts_data_zeroed = lif.zero_correct(cts_data_flagged, channels=['sig_A', 'sig_B'], plot=True)
+cts_data_zero, cts_data_zeroed = lif.zero_correct(cts_data_flagged, channels=['sig_A', 'sig_B'], plot=True)
+
+fig, ax = plt.subplots(figsize=(10,6))
+ax.plot(cts_data_MRs_1min['Date_time'],cts_data_MRs_1min['amb_NO_ppt'], label='NO')
+ax.plot(cts_data_zero['Date_time'],cts_data_zero['sig_A_diff_cts_norm'])
+ax.set_xlabel('date_time')
+ax.set_ylabel('concentration / ppt')
+plt.legend()
+plt.show()
 
 
-
-Std_cal_summary_A, Refnorm_cal_summary_A = lif.analyse_cals(
-    cts_data_zeroed, plot=False, max_conc=5000, cell='A', path=path
-    , molecule='NO')
-
-Std_cal_summary_B, Refnorm_cal_summary_B = lif.analyse_cals(
-    cts_data_zeroed, plot=False, max_conc=5000, cell='B', path=path
-    , molecule='NO')
-
-lif.analyse_BLC_cals(cts_data_zeroed, plot=True)
+# =============================================================================
+# Std_cal_summary_A, Refnorm_cal_summary_A = lif.analyse_cals(
+#     cts_data_zeroed, plot=False, max_conc=5000, cell='A', path=path
+#     , molecule='NO')
+# 
+# Std_cal_summary_B, Refnorm_cal_summary_B = lif.analyse_cals(
+#     cts_data_zeroed, plot=False, max_conc=5000, cell='B', path=path
+#     , molecule='NO')
+# 
+# lif.analyse_BLC_cals(cts_data_zeroed, plot=True)
+# =============================================================================
 
 
 
@@ -114,10 +123,24 @@ cts_data_MRs['amb_NO_ppt'] = np.where(
     , np.nan
     )
 
+cts_data_MRs['amb_NO_ppt'] = np.where(
+    ((cts_data_MRs['Date_time'] >= pd.to_datetime('10/06/2025 01:10:00', format='%d/%m/%Y %H:%M:%S')) & (cts_data_MRs['Date_time'] <= pd.to_datetime('10/06/2025 01:45:00', format='%d/%m/%Y %H:%M:%S')))
+    | ((cts_data_MRs['Date_time'] >= pd.to_datetime('16/06/2025 01:15:00', format='%d/%m/%Y %H:%M:%S')) & (cts_data_MRs['Date_time'] <= pd.to_datetime('16/06/2025 01:50:00', format='%d/%m/%Y %H:%M:%S')))
+    , np.nan
+    , cts_data_MRs['amb_NO_ppt']
+    )
+
 cts_data_MRs['amb_NOx_ppt'] = np.where(
     (cts_data_MRs['Task'] == 0) & (cts_data_MRs['Peak_find_flag'] == 0)
     , cts_data_MRs['sig_B_diff_cts_ref_norm_zero_corr'] / cts_data_MRs['cell_B_cal_factor']
     , np.nan
+    )
+
+cts_data_MRs['amb_NOx_ppt'] = np.where(
+    ((cts_data_MRs['Date_time'] >= pd.to_datetime('10/06/2025 01:10:00', format='%d/%m/%Y %H:%M:%S')) & (cts_data_MRs['Date_time'] <= pd.to_datetime('10/06/2025 01:45:00', format='%d/%m/%Y %H:%M:%S')))
+    | ((cts_data_MRs['Date_time'] >= pd.to_datetime('16/06/2025 01:15:00', format='%d/%m/%Y %H:%M:%S')) & (cts_data_MRs['Date_time'] <= pd.to_datetime('16/06/2025 01:50:00', format='%d/%m/%Y %H:%M:%S')))
+    , np.nan
+    , cts_data_MRs['amb_NOx_ppt']
     )
 
 cts_data_MRs['amb_NO2_ppt'] = np.where(
@@ -126,8 +149,11 @@ cts_data_MRs['amb_NO2_ppt'] = np.where(
     , np.nan
     )
 
+
+
 cts_data_MRs.set_index('Date_time')
 cts_data_MRs_1min = cts_data_MRs.resample('1min').mean()
+cts_data_MRs_5min = cts_data_MRs.resample('5min').mean()
 
 fig, ax = plt.subplots(figsize=(10,6))
 ax.plot(cts_data_MRs_1min['Date_time'],cts_data_MRs_1min['amb_NO_ppt'], label='NO')
@@ -136,6 +162,24 @@ ax.set_xlabel('date_time')
 ax.set_ylabel('concentration / ppt')
 plt.legend()
 plt.show()
+
+NO_prelim_data = cts_data_MRs_1min[['Date_time', 'amb_NO_ppt', 'amb_NO2_ppt']].copy()
+NO_prelim_data.to_csv('NOx_CARES_MaceHead_prelim.txt', mode='a', header=False, index=False, sep=',')
+
+
+NOx_data = pd.read_csv('C:\\Users\\pp835\\OneDrive - University of York\\Documents\\'
+                       'Data Analysis\\CARES\\Mace Head Binary Data Analysis\\'
+                       'NOx_CARES_MaceHead_prelim.txt', header=6)
+
+fig, ax = plt.subplots(figsize=(10,6))
+ax.plot(pd.to_datetime(NOx_data['Date_time']),NOx_data['ambient_NO_ppt'], label='NO')
+ax.plot(pd.to_datetime(NOx_data['Date_time']),NOx_data['ambient_NO2_ppt'], label='NO2')
+ax.set_xlabel('date_time')
+ax.set_ylabel('concentration / ppt')
+plt.legend()
+plt.show()
+
+
 
 
 

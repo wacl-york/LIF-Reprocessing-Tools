@@ -1,10 +1,10 @@
 import pandas as pd
-import lif_functions as lif     
+import lif_functions as lif    
+ 
+working_dir = ('C:\\Users\\pp835\\OneDrive - University of York\\Documents\\'
+               'Data Analysis\\CARES\\Mace Head Binary Data Analysis')
 
-path = ('C:\\Users\\pp835\\OneDrive - University of York\\Documents\\'
-        'Data Analysis\\CARES\\Mace Head Binary Data Analysis\\'
-        'processing_variables.txt'
-        )
+path = (f'{working_dir}\\processing_variables.txt')
 
 processing_variables = pd.read_csv(path)
 #date_mask = processing_variables['date'] >= 20250608
@@ -18,7 +18,7 @@ for i in processing_variables.index:
         , date = str(processing_variables['date'][i])
         , working_dir = ('C:\\Users\\pp835\\OneDrive - University of York\\Documents\\'
                          'Data Analysis\\CARES\\Mace Head Binary Data Analysis')
-        , HK_file_path = 'data_HK\\' + str(processing_variables['date'][i])  
+        , HK_file_path = 'data_HK\\' + str(processing_variables['date'][i])
         , bin_file_path = 'data_bin\\' + str(processing_variables['date'][i])
         , HK_headers_dict = ['Task', 'NO_Cell_Flow', 'NO2_Cell_Flow', 'Ref_Cell_SLPM'
                              , 'Cal_NO_MFC_set', 'Cal_NO_MFC_Read', 'Cal_SB_MFC_Read'
