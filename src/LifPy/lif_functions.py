@@ -1,8 +1,11 @@
-import os
-import sys
 import math
+import os
+import re
+import sys
+
 import numpy as np
 import pandas as pd
+
 from datetime import datetime as dt
 from itertools import islice
 from sklearn.linear_model import LinearRegression
@@ -54,7 +57,114 @@ def find_min_ind(target, array, start=0, end='full'):
 
     return diff_arr.index(np.min(diff_arr))
 
-def import_HK_data(HK_file_path, skip_start_HK=0, skip_end_HK=0):
+def find_day_folders(data_dir):
+    
+    campaign_subdirs = os.listdir(data_dir)
+    day_folders = [folder for folder in campaign_subdirs 
+                    if re.match("20[0-9]{2}[0-1][0-9][0-3][0-9]", folder) is not None]
+    
+    return day_folders
+
+def gen_processing_var(data_dir, day_folders, channel_format, channel_count):
+    
+    print('Generating Processing Variables')
+    
+    log_records = []
+    bin_records = []
+    # for day in all days
+    for day in day_folders:
+        
+        # Parse Log files
+        log_dir = os.path.join(data_dir, day, f"LIFLog_{day}")
+        # for logfile in all logfile
+        for log_file in os.listdir(log_dir):
+            if log_file[0:6] != 'LIFLog':  # Check first 6 characters, skip any non logfiles
+                continue
+            # Extract unformatted time from logfile
+            with open(os.path.join(log_dir, log_file), "r") as infile:  # Read first line
+                raw_time = infile.readlines()[0]
+            # parse time
+            time_split = re.match(
+                "Log File Created @ (\\d+):(\\d+):(\\d+)\\.\\d+\\s+(\\d+)/(\\d+)/(\\d+)"
+                , raw_time
+                )
+            time_groups = time_split.groups()
+            time_fmt = f"{int(time_groups[4]):02}/{int(time_groups[3]):02}/20{time_groups[5]} {int(time_groups[0]):02}:{int(time_groups[1]):02}:{int(time_groups[2]):02}"
+            # Save filename + time
+            log_records.append({'log_filename': log_file, 'log_start_datetime': time_fmt})
+            
+        # Parse binary files
+        bin_dir = os.path.join(data_dir, day, f"LIFCnts_{day}")
+        for bin_file in os.listdir(bin_dir):
+            if bin_file[0:7] != 'LIFCnts':  # Check first 6 characters, skip any non binfiles
+                continue
+            
+            file_size = os.path.getsize(os.path.join(bin_dir, bin_file)) / 1024 / 1024
+            bin_records.append({'date': day, 'bin_filename': bin_file, 'bin_size': file_size})
+    
+    # Combine log metadata
+    log_df = pd.DataFrame.from_records(log_records)
+    log_df['dt'] = pd.to_datetime(log_df['log_start_datetime'], dayfirst=True)
+    log_df.sort_values('dt', inplace=True)
+    log_df['restart_index'] = range(log_df.shape[0])
+    
+    # Combine bin metadata
+    bin_df = pd.DataFrame.from_records(bin_records)
+    bin_df.sort_values('bin_filename', inplace=True)
+    
+    # Identify files that are from a restart as being the next file after a non-full file
+    bin_df['is_full'] = bin_df['bin_size'] > 19
+    bin_df['is_restart'] = (~bin_df['is_full']).shift(1, fill_value=False)
+    bin_df['is_time_reset'] = False
+    
+    for i in bin_df.index:
+        if bin_df['is_restart'][i]:
+            bin_data = import_bin_data(data_dir, bin_df['date'][i]
+                                       , bin_df['bin_filename'][i]
+                                          )
+            bin_data_dict = deinterleave_bin_data(bin_data, channel_format
+                                                  , channel_count)
+            bin_data_df = pd.DataFrame.from_dict(bin_data_dict)
+            if bin_data_df['time_ms'][0] < 1000:
+                bin_df.loc[i, 'is_time_reset'] = True
+    
+    # Create log file index by treating is_restart as 0/1 integers and using 
+    # cumulative sum to group together files from between each restart
+    bin_df['restart_index'] = bin_df['is_restart'].cumsum()
+    bin_df['time_reset_index'] = bin_df['is_time_reset'].cumsum()
+    
+    soft_restart_mask = (bin_df['is_restart']) & (~bin_df['is_time_reset'])
+    soft_restart_list = bin_df['restart_index'][soft_restart_mask]
+    
+    # Combine with log dataframe
+    hard_mask = ~log_df['restart_index'].isin(soft_restart_list)
+    soft_mask = log_df['restart_index'].isin(soft_restart_list)
+    
+    log_df_hard_restart = log_df[hard_mask].copy()
+    log_df_hard_restart['time_reset_index'] = range(log_df_hard_restart.shape[0])
+    
+    log_df_soft_restart = log_df[soft_mask].copy()
+    
+    comb_df = pd.merge(bin_df, log_df_hard_restart, on='time_reset_index')
+    comb_df_soft_restart = pd.merge(bin_df, log_df_soft_restart, on='restart_index')
+    
+    # Restrict to columns of interest
+    comb_df = comb_df[['date', 'bin_filename', 'log_filename', 'log_start_datetime']]
+    comb_df_soft_restart = comb_df_soft_restart[['date', 'bin_filename', 'log_filename', 'log_start_datetime']]
+    num_soft_restarts = len(comb_df_soft_restart)
+    
+    processing_variables_file_path = os.path.join(data_dir, 'processing_variables.txt')
+    comb_df.to_csv(processing_variables_file_path, index=False)
+    
+    print(f'\nProcessing variables file created at:\n{processing_variables_file_path}')
+    if num_soft_restarts > 0:
+        soft_restarts_file_path = os.path.join(data_dir, 'soft_restarts.txt')
+        comb_df_soft_restart.to_csv(soft_restarts_file_path, index=False)
+        print(f'\n{num_soft_restarts} soft restarts found'
+              f'\nSoft restarts file created at: \n{soft_restarts_file_path}')
+    
+
+def import_HK_data(data_dir, day_folders):
     """
     Imports and concatenates data from multiple Housekeeping (HK) files in a 
     specified directory.
@@ -89,28 +199,47 @@ def import_HK_data(HK_file_path, skip_start_HK=0, skip_end_HK=0):
     the first time it is encountered.
     """
     
-    file_list = [f for f in os.listdir(HK_file_path) \
-                 if os.path.isfile(os.path.join(HK_file_path, f))]
-
-    HK_data = {}
-
     print('\nreading HK files:\n')
+    
+    HK_data = {}
+    
+    for day in day_folders:
+        
+        file_list = []
+        HK_dir = os.path.join(data_dir, day, f"LIFHK_{day}")
+        if not os.path.isdir(HK_dir):
+            print(f"Warning: Directory not found for day {day}: {HK_dir}")
+            continue
+        
+        file_list.extend(file_name for file_name in os.listdir(HK_dir) if file_name.startswith('LIFHK'))
 
-    for file in range(skip_start_HK, len(file_list) - skip_end_HK):
-        print(f'\r{file_list[file]}', end='')
-        file_data = pd.read_csv(HK_file_path + '/' + file_list[file], \
-                                delimiter=r'\s+', header=0)
+        if not file_list:
+            continue
 
-        for header in list(file_data):
-            try:
-                HK_data[header] = np.concatenate((HK_data[header], \
-                                                  file_data[header]))
-            except:
-                HK_data[header] = np.array([])
-                HK_data[header] = np.concatenate((HK_data[header], \
-                                                  file_data[header]))
+        for file in file_list:
 
-    return HK_data
+            print(f'\r{file}', end='')
+            
+            file_path = os.path.join(HK_dir, file)
+            file_data = pd.read_csv(file_path, delimiter=r'\s+', header=0)
+    
+            for header in list(file_data):
+                
+                current_data = file_data[header].values
+                
+                if header in HK_data:
+                    HK_data[header].append(current_data)
+                else:
+                    # Initialize with a list containing the first array
+                    HK_data[header] = [current_data]
+    
+    final_HK_data = {}
+    for header, list_of_arrays in HK_data.items():
+        # Perform one single concatenation for each header
+        final_HK_data[header] = np.concatenate(list_of_arrays) 
+    print('\nHK data imported successfully')           
+
+    return final_HK_data
 
 def gen_bin_file_list(bin_file_path, skip_start_bin, skip_end_bin):
     """
@@ -227,7 +356,7 @@ def format_log_start_datetime(log_start_datetime):
     
     return epoch_time
 
-def import_bin_data(bin_file_path, file):
+def import_bin_data(data_dir, date, file):
     """
     Imports data from a single binary file into a NumPy array.
 
@@ -251,7 +380,7 @@ def import_bin_data(bin_file_path, file):
     - '2' : 2 bytes (16 bits) in size.
     """
     
-    bin_data = np.fromfile(bin_file_path + '\\' + file, dtype='>i2') 
+    bin_data = np.fromfile(os.path.join(data_dir, date, f'LIFCnts_{date}', file), dtype='>i2') 
     
     return bin_data
 
@@ -405,71 +534,8 @@ def shift_correction(file, shift_file, channel_format):
     shift_correction = shift_dict['seed_LD_mode']
 
     return shift_correction
-
-def lag_correction(file, bin_file_list, bin_data_dict, lag_override, HK_data):
-    """
-    Calculates the internal data lag from binary timestamps and applies a 
-    startup lag correction to the Housekeeping (HK) time series for the first 
-    processed file.
-
-    The lag is calculated by finding the largest time step in the binary data 
-    (close to 20 seconds, or 20,000 ms). If a significant lag is found, half of 
-    that lag is subtracted from all HK timestamps to align the time bases. This 
-    correction is only performed on the first binary file in the sequence.
-
-    Parameters
-    ----------
-    file : str
-        The name of the current data file being processed.
-    bin_file_list : list of str
-        The full list of binary file names to be processed.
-    bin_data_dict : dict
-        The dictionary containing the processed binary data, which must include 
-        the key 'time_ms' (time in milliseconds).
-    lag_override : float
-        A default or fallback lag value (in milliseconds) to use if a lag 
-        cannot be calculated from the binary data.
-    HK_data : dict
-        The dictionary containing Housekeeping data, which must include the 
-        key 'Time_s' (time in seconds).
-
-    Returns
-    -------
-    None
-        The function modifies the 'Time_s' array within the input `HK_data` 
-        dictionary in place.
-
-    Notes
-    -----
-    - **Lag Calculation:** Uses `find_min_ind` to find the index of the time 
-        step closest to 20,000 ms in the binary data. A step less than 100 ms 
-        is ignored (set to NaN).
-    - **Correction:** The time shift applied to HK data is half of the detected 
-        lag, rounded up to the nearest second, and only applied if the current 
-        file is the first in bin_file_list.
-    """
-    
-    delta_bin = \
-        [t_1 - t_0 for t_1, t_0 in zip(bin_data_dict['time_ms'][1::]
-        , bin_data_dict['time_ms'][0: len(bin_data_dict['time_ms'])])]
-
-    lag_ind = find_min_ind(20 * 1000, delta_bin)
-
-    if delta_bin[lag_ind] > 100:
-        lag_calc = delta_bin[lag_ind]
-    else:
-        lag_calc = np.nan    
-
-    if file == bin_file_list[0]:
-        if not math.isnan(lag_calc):
-            lag_sec = lag_calc / 1000
-            HK_data['Time_s'] = HK_data['Time_s'] - int((lag_sec / 2) + 0.5)
-            print('Shift HK data by %.0f seconds' % lag_sec)
-        else:
-            HK_data['Time_s'] = HK_data['Time_s'] - int((lag_override / 2) 
-                                                            + 0.5)
  
-def gen_output_file(working_dir, file, channel_format, HK_headers_dict
+def gen_output_file(data_dir, file, channel_format, HK_headers_dict
                     , HK_data, date):
    """
     Creates and initializes the output text file, writes metadata and all 
@@ -508,7 +574,7 @@ def gen_output_file(working_dir, file, channel_format, HK_headers_dict
 
     """
    
-   output_dir = os.path.join(working_dir, 'data_processed', date)
+   output_dir = os.path.join(data_dir, date, f'LIFProcessed_{date}')
    try:
      os.makedirs(output_dir, exist_ok=True)
    except OSError as e:
@@ -518,7 +584,7 @@ def gen_output_file(working_dir, file, channel_format, HK_headers_dict
    
    output_filename = os.path.join(
         output_dir, 
-        '%s_LIF_processed_data_%s.txt' % (file.split(sep="_")[1][0: 8], file_ind)
+        '%s_LIF_processed_data_%s.txt' % (date, file_ind)
     )
    
    processed_file = open(output_filename, 'w+') 
@@ -563,6 +629,8 @@ def gen_output_file(working_dir, file, channel_format, HK_headers_dict
    all_headers = binary_headers + ',' + HK_labels + '\n'
    
    processed_file.write(all_headers)
+   
+   #processed_file.flush()
    
    nan_data = ','.join(np.full(len(all_headers.split(',')[1::]), str(-9999)))
    
@@ -701,8 +769,6 @@ def gen_output_data(channel_format, bin_data_dict, HK_data, HK_headers_dict,
     no_dropped_online = 0
     one_dropped_online = 0
     two_dropped_online = 0
-    no_dropped_offline = 0
-    one_dropped_offline = 0
     processed_points = 0
 
     for i in iter_range: 
@@ -770,26 +836,18 @@ def gen_output_data(channel_format, bin_data_dict, HK_data, HK_headers_dict,
                     else:
                             online_offset = 7  # keeps all online points  
                             no_dropped_online += 1                              
-                    
-                        
-                    if ref_counts_norm[i + 1] > 1.5 * ref_counts_norm[i + 2]:
-                        offline_offset = 2
-                        one_dropped_offline += 1
-                    else:
-                        offline_offset = 3
-                        no_dropped_offline += 1
                         
                     
     
                     on_cts_ref = np.mean(ref_counts[i - online_offset: i + 1]
                         ) * 10 * data_freq
-                    off_cts_ref = np.mean(ref_counts[i + 1: i + offline_offset]
+                    off_cts_ref = np.mean(ref_counts[i + 1: i + 3]
                         ) * 10 * data_freq
                     cts_diff_ref = on_cts_ref - off_cts_ref
                     
                     on_cts_ref_norm = np.mean(ref_counts_norm[i - online_offset: i + 1]
                         ) * 10 * data_freq
-                    off_cts_ref_norm = np.mean(ref_counts_norm[i + 1: i + offline_offset]
+                    off_cts_ref_norm = np.mean(ref_counts_norm[i + 1: i + 3]
                         ) * 10 * data_freq
                     cts_diff_ref_norm = on_cts_ref_norm - off_cts_ref_norm
                     
@@ -802,7 +860,7 @@ def gen_output_data(channel_format, bin_data_dict, HK_data, HK_headers_dict,
                             channel_data[i - online_offset: i + 1]
                             ) * 10 * data_freq
                         off_cts = np.mean(
-                            channel_data[i + 1: i + offline_offset]
+                            channel_data[i + 1: i + 3]
                             ) * 10 * data_freq
                         cts_diff = on_cts - off_cts
                         cts_wrt_list.append(
@@ -814,7 +872,7 @@ def gen_output_data(channel_format, bin_data_dict, HK_data, HK_headers_dict,
                             channel_data[i - online_offset: i + 1]
                             ) * 10 * data_freq
                         off_cts_norm = np.mean(
-                            channel_data[i + 1: i + offline_offset]
+                            channel_data[i + 1: i + 3]
                             ) * 10 * data_freq
                         cts_diff_norm = on_cts_norm - off_cts_norm
                         cts_wrt_list_norm.append(
@@ -825,7 +883,7 @@ def gen_output_data(channel_format, bin_data_dict, HK_data, HK_headers_dict,
                         laser_pwr_PT0[i - online_offset: i + 1]
                         )
                     off_lsr_pwr = np.mean(
-                        laser_pwr_PT0[i + 1: i + offline_offset]
+                        laser_pwr_PT0[i + 1: i + 3]
                         )
                     lsr_pwr = np.mean([on_lsr_pwr, off_lsr_pwr])
     
@@ -865,12 +923,16 @@ def gen_output_data(channel_format, bin_data_dict, HK_data, HK_headers_dict,
          
     processed_file.write(''.join(output_lines))     
 
-    print(f'\npercentage of no dropped online points = {((no_dropped_online/processed_points)*100): .2f}'
-          f'\npercentage of one dropped online point = {((one_dropped_online/processed_points)*100): .2f}'
-          f'\npercentage of two dropped online points = {((two_dropped_online/processed_points)*100): .2f}'
-          f'\npercentage of first offline points kept = {((no_dropped_offline/processed_points)*100): .2f}'
-          f'\npercentage of first offline points dropped = {((one_dropped_offline/processed_points)*100): .2f}'
-          )
+    if processed_points > 0:
+        
+        print(f'\npercentage of no dropped online points = {((no_dropped_online/processed_points)*100): .2f}'
+              f'\npercentage of one dropped online point = {((one_dropped_online/processed_points)*100): .2f}'
+              f'\npercentage of two dropped online points = {((two_dropped_online/processed_points)*100): .2f}'
+              )
+        
+    else:
+        print('\nNo processed points in file')
+    
     if histograms:
         
         histogram_off_array = np.array(histogram_off)
@@ -893,11 +955,8 @@ def gen_output_data(channel_format, bin_data_dict, HK_data, HK_headers_dict,
         plt.tight_layout()
         plt.show()
 
-def reprocess_binary_data(log_start_datetime, date, HK_headers_dict
-                          , channel_format, working_dir
-                          , bin_file_path='data_bin', HK_file_path='data_HK'
-                          , data_freq=10, skip_start_HK=0, skip_end_HK=0
-                          , skip_start_bin=0, skip_end_bin=0, lag_override=0
+def reprocess_binary_data(date, file, log_start_datetime, HK_headers_dict
+                          , channel_format, data_dir, HK_data, data_freq=10
                           , channel_count=10, histograms=False):
     """
     This function calls all of the other sub-functions above, to read and 
@@ -955,47 +1014,34 @@ def reprocess_binary_data(log_start_datetime, date, HK_headers_dict
     
     """
     
-    working_dir = working_dir
-    HK_data = import_HK_data(
-        working_dir + '\\' + HK_file_path
-        )
-    bin_file_list = gen_bin_file_list(
-        working_dir + '\\' + bin_file_path, skip_start_bin, skip_end_bin
-        ) 
+    print('\nReprocessing file %s' % file)
+    
     shift_file = pd.read_csv(
         os.getcwd() + '\\lib\\misalligned_files.txt', header=0, delimiter=','
         )
     log_start_datetime_seconds = format_log_start_datetime(
         log_start_datetime
         )
-    
-    for file in bin_file_list:
-        
-        print('\nReprocessing file %s' % file)
-        
-        bin_data = import_bin_data(
-            working_dir + '\\' + bin_file_path, file
-            )
-        bin_data_dict = deinterleave_bin_data(
-            bin_data, channel_format, channel_count
-            )
-        shft_correction = shift_correction(
-            file, shift_file, channel_format
-            )
-        lag_correction(
-            file, bin_file_list, bin_data_dict, lag_override, HK_data
-            )
-        processed_file, nan_data = gen_output_file(
-            working_dir, file, channel_format, HK_headers_dict, HK_data, date
-            )
-        bin_time_arr, HK_start_ind, HK_end_ind = align_bin_HK(
-            bin_data_dict, log_start_datetime_seconds, HK_data
-            )
-        gen_output_data(
-            channel_format, bin_data_dict, HK_data, HK_headers_dict, data_freq
-            , bin_time_arr, HK_start_ind, HK_end_ind, nan_data, processed_file
-            , shft_correction, histograms
-            )
+    bin_data = import_bin_data(
+        data_dir, date, file
+        )
+    bin_data_dict = deinterleave_bin_data(
+        bin_data, channel_format, channel_count
+        )
+    shft_correction = shift_correction(
+        file, shift_file, channel_format
+        )
+    processed_file, nan_data = gen_output_file(
+        data_dir, file, channel_format, HK_headers_dict, HK_data, date
+        )
+    bin_time_arr, HK_start_ind, HK_end_ind = align_bin_HK(
+        bin_data_dict, log_start_datetime_seconds, HK_data
+        )
+    gen_output_data(
+        channel_format, bin_data_dict, HK_data, HK_headers_dict, data_freq
+        , bin_time_arr, HK_start_ind, HK_end_ind, nan_data, processed_file
+        , shft_correction, histograms
+        )
 
 
 """
@@ -1391,17 +1437,17 @@ def analyse_BLC_cals(all_data, plot):
     data = all_data[['sig_B_diff_cts', 'sig_B_diff_cts_ref_norm', 'Task', 'Date_time', 'BLC_0_flag', 'BLC_1_flag']].copy()
     data.replace([np.inf, -np.inf], np.nan, inplace=True)
     data = data.reset_index(drop=True)
-    data['BLC_Cal_Sig_diff_cts_ref_norm'] = data['sig_B_diff_cts_ref_norm'].where(data['Task'] == 1)
+    data['BLC_Cal_sig_diff_cts_ref_norm'] = data['sig_B_diff_cts_ref_norm'].where(data['Task'] == 1)
     data['BLC_Cal_group'] = np.nan
     data['BLC_cal_start_time'] = pd.NaT
     BLC_cal_num = 0
     BLC_cal_group_start_times = {}  
     
     for i in data.index:
-        if (i > 0 and pd.notnull(data['BLC_Cal_Sig_diff_cts_ref_norm'][i]) and pd.isnull(data['BLC_Cal_Sig_diff_cts_ref_norm'][max(0, i-3000):i].mean())):
+        if (i > 0 and pd.notnull(data['BLC_Cal_sig_diff_cts_ref_norm'][i]) and pd.isnull(data['BLC_Cal_sig_diff_cts_ref_norm'][max(0, i-3000):i].mean())):
             BLC_cal_num += 1
             BLC_cal_group_start_times[BLC_cal_num] = data.loc[i, 'Date_time']
-        if (pd.notnull(data['BLC_Cal_Sig_diff_cts_ref_norm'][i]) and pd.notnull(data['BLC_Cal_Sig_diff_cts_ref_norm'][max(0, i-3010):max(0, i-100)].mean())):
+        if (pd.notnull(data['BLC_Cal_sig_diff_cts_ref_norm'][i]) and pd.notnull(data['BLC_Cal_sig_diff_cts_ref_norm'][max(0, i-3010):max(0, i-100)].mean())):
             data.loc[i, 'BLC_Cal_group'] = BLC_cal_num
             
     fig, axs = plt.subplots(1, BLC_cal_num, figsize=(6*BLC_cal_num, 4))
@@ -1414,10 +1460,10 @@ def analyse_BLC_cals(all_data, plot):
         cal_tmp_df.iloc[3260:5620, cal_tmp_df.columns.get_loc('cal_section')] = 2
         cal_tmp_df.iloc[6520:8580, cal_tmp_df.columns.get_loc('cal_section')] = 3
         cal_tmp_df.iloc[9280:11540, cal_tmp_df.columns.get_loc('cal_section')] = 4
-        gpt_off_blc_off = cal_tmp_df['BLC_Cal_Sig_diff_cts_ref_norm'].where(cal_tmp_df['cal_section'] == 1).mean()
-        gpt_off_blc_on = cal_tmp_df['BLC_Cal_Sig_diff_cts_ref_norm'].where(cal_tmp_df['cal_section'] == 2).mean()
-        gpt_on_blc_off = cal_tmp_df['BLC_Cal_Sig_diff_cts_ref_norm'].where(cal_tmp_df['cal_section'] == 3).mean()
-        gpt_on_blc_on = cal_tmp_df['BLC_Cal_Sig_diff_cts_ref_norm'].where(cal_tmp_df['cal_section'] == 4).mean()
+        gpt_off_blc_off = cal_tmp_df['BLC_Cal_sig_diff_cts_ref_norm'].where(cal_tmp_df['cal_section'] == 1).mean()
+        gpt_off_blc_on = cal_tmp_df['BLC_Cal_sig_diff_cts_ref_norm'].where(cal_tmp_df['cal_section'] == 2).mean()
+        gpt_on_blc_off = cal_tmp_df['BLC_Cal_sig_diff_cts_ref_norm'].where(cal_tmp_df['cal_section'] == 3).mean()
+        gpt_on_blc_on = cal_tmp_df['BLC_Cal_sig_diff_cts_ref_norm'].where(cal_tmp_df['cal_section'] == 4).mean()
         conversion_efficiency = 1- ((gpt_off_blc_on - gpt_on_blc_on)/(gpt_off_blc_off - gpt_on_blc_off))
         print('conversion efficiency cal ' + str(cal) + ':' + str(conversion_efficiency))
 
@@ -1437,7 +1483,7 @@ def analyse_BLC_cals(all_data, plot):
 
             # --- First Plot ---
             # Plot on the first subplot (axs[0])
-            axs[cal-1].plot(cal_tmp_df.index, cal_tmp_df['BLC_Cal_Sig_diff_cts_ref_norm'])
+            axs[cal-1].plot(cal_tmp_df.index, cal_tmp_df['BLC_Cal_sig_diff_cts_ref_norm'])
             axs[cal-1].set_title(f'BLC cal {cal}')
 
             # Adjust the layout to prevent titles and labels from overlapping
