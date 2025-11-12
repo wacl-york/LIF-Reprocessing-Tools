@@ -27,6 +27,11 @@ def misaligned_counts(data_dir, day_folders, channels_to_use):
     HK_data = lif.import_HK_data(data_dir, day_folders)
     processing_variables = pd.read_csv(os.path.join(data_dir, 'processing_variables.txt'))
     soft_restarts = pd.read_csv(os.path.join(data_dir, 'soft_restarts.txt'))
+    
+    for channel in channels_to_use:
+        processing_variables[f'{channel}_shift'] = 0
+        soft_restarts[f'{channel}_shift'] = 0
+        
 
     # Loop through each soft restart 
     for i in soft_restarts.index:
@@ -77,7 +82,8 @@ def misaligned_counts(data_dir, day_folders, channels_to_use):
         
         ### APPEND THE FILE SHIFT VALUES TO THE SOFT RESTARTS FILE ###
         
-    ### TRANSFER THE FILE SHIFT VALUES FROM THE SOFT RESTARTS FILE TO ALL 
+    ### TRANSFER THE FILE SHIFT VALUES FROM THE SOFT RESTARTS FILE TO ALL CORRESPONDING LINES IN PROCESSING VARIABLES ###
+    ### OVERWRITE THE PROCESSING VARIABLES FILE WITH THE SHIFTS APPENDED ### 
 
 
 
