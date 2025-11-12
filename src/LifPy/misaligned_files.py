@@ -23,12 +23,12 @@ channel_format ={
 day_folders = lif.find_day_folders(data_dir)
 
 def misaligned_counts(data_dir, day_folders, channels_to_use):
-    
+
     HK_data = lif.import_HK_data(data_dir, day_folders)
     processing_variables = pd.read_csv(os.path.join(data_dir, 'processing_variables.txt'))
     soft_restarts = pd.read_csv(os.path.join(data_dir, 'soft_restarts.txt'))
-    
 
+    # Loop through each soft restart 
     for i in soft_restarts.index:
         
         print(f"\nchecking for misaligned data in file: {soft_restarts['bin_filename'][i]}")
@@ -38,81 +38,52 @@ def misaligned_counts(data_dir, day_folders, channels_to_use):
         bin_data_dict = lif.deinterleave_bin_data(bin_data, channel_format, channel_count)
         bin_time_arr, HK_start_ind, HK_end_ind = lif.align_bin_HK(bin_data_dict, log_start_datetime_seconds, HK_data)
         
+        # Vectorised alignment
+        # Get the full 'Time_s' array from the HK data dictionary
+        HK_time = HK_data['Time_s']
         
-        bin_time_ms = bin_data_dict['time_ms']
-        tot_steps = len(bin_time_ms) - 1
-        iter_range = iter(range(tot_steps))
+        # Slice the HK time array to only include the relevant segment (based on indices from lif.align_bin_HK).
+        # Note: Since HK_data['Time_s'] is a NumPy array, we slice it directly.
+        HK_time_slice = HK_time[HK_start_ind : HK_end_ind + 1]
         
-        data_records = []
-        
-        for j in iter_range:
-            
-            if j % 100 == 0:
-                print('\r%.2f' % (abs(1 - (tot_steps - j) / tot_steps) * 100)
-                      , end='')
-                
-            curr_time = bin_time_arr[j]
-            
-            HK_ind = HK_start_ind + lif.find_min_ind(
-                curr_time, HK_data['Time_s'], HK_start_ind, HK_end_ind
-                )
-            
-            new_record = {}
-            
-            for channel in channels_to_use:
-                new_record[channel] = bin_data_dict[channel][j]
-                
-            new_record['seed_LD_mode'] = bin_data_dict['seed_LD_mode'][j]
-                
-            new_record['Task'] = HK_data['Task'][HK_ind]
-            
-            data_records.append(new_record)
-    
-        test_data = pd.DataFrame(data_records)
-        
-    return test_data, bin_data_dict
-
-def misaligned_counts_optimised(data_dir, day_folders, channels_to_use):
-    
-    HK_data = lif.import_HK_data(data_dir, day_folders)
-    processing_variables = pd.read_csv(os.path.join(data_dir, 'processing_variables.txt'))
-    soft_restarts = pd.read_csv(os.path.join(data_dir, 'soft_restarts.txt'))
-    
-    test_data_list = []
-    bin_data_dict_list = []
-
-    for i in soft_restarts.index:
-        
-        print(f"\nchecking for misaligned data in file: {soft_restarts['bin_filename'][i]}")
-        
-        log_start_datetime_seconds = lif.format_log_start_datetime(soft_restarts['log_start_datetime'][i])
-        bin_data = lif.import_bin_data(data_dir, str(soft_restarts['date'][i]), str(soft_restarts['bin_filename'][i]))
-        bin_data_dict = lif.deinterleave_bin_data(bin_data, channel_format, channel_count)
-        bin_time_arr, HK_start_ind, HK_end_ind = lif.align_bin_HK(bin_data_dict, log_start_datetime_seconds, HK_data)
-        
-        HK_time_slice = HK_data['Time_s'].values[HK_start_ind : HK_end_ind + 1]
-        
+        # Use np.searchsorted to find the index in HK_time_slice where each value in bin_time_arr 
+        # would need to be inserted to maintain order. This quickly performs the time-alignment
+        # for ALL Bin time points at once.
         HK_ind_relative = np.searchsorted(HK_time_slice, bin_time_arr)
+        
+        # Clamp the indices to the valid range (0 to length-1) within the HK_time_slice segment.
         HK_ind_relative = np.clip(HK_ind_relative, 0, len(HK_time_slice) - 1)
+        
+        # Convert the relative indices (within the slice) back to absolute indices 
+        # for the full HK_data arrays.
         HK_ind_absolute = HK_start_ind + HK_ind_relative
-        new_df = pd.DataFrame()
+        
+        data_df = pd.DataFrame()
+        
+        # Pull the high-frequency Bin data columns (counts, etc.) directly using array slicing.
         for channel in channels_to_use:
-             # Ensure channel data is an array/list, and slice off the last element if tot_steps was len-1
-            new_df[channel] = bin_data_dict[channel][:len(bin_time_arr)]
-        new_df['seed_LD_mode'] = bin_data_dict['seed_LD_mode'][:len(bin_time_arr)]
-        new_df['Task'] = HK_data['Task'].iloc[HK_ind_absolute].values
-        test_data_list.append(new_df)
-        bin_data_dict_list.append(bin_data_dict)
-
-    if test_data_list:
-        final_test_data = pd.concat(test_data_list, ignore_index=True)
-    else:
-        final_test_data = pd.DataFrame()        
+             # Slices the array up to the length of the bin_time_arr
+             data_df[channel] = bin_data_dict[channel][:len(bin_time_arr)]
+             
+        # Add the 'seed_LD_mode' column from the Bin data
+        data_df['seed_LD_mode'] = bin_data_dict['seed_LD_mode'][:len(bin_time_arr)]
         
-    return final_test_data, bin_data_dict
+        # Vectorized Lookup: Use the array of absolute indices (HK_ind_absolute) to select 
+        # the corresponding 'Task' status from the HK data in a single, fast operation.
+        # Note: Since HK_data['Task'] is a NumPy array, we index it directly.
+        data_df['Task'] = HK_data['Task'][HK_ind_absolute]
+        
+        ### DO THE FILE MISALIGNMENT CALCULATION ### 
+        
+        ### APPEND THE FILE SHIFT VALUES TO THE SOFT RESTARTS FILE ###
+        
+    ### TRANSFER THE FILE SHIFT VALUES FROM THE SOFT RESTARTS FILE TO ALL 
+
+
+
 
         
-test_data, bin_data_dict = misaligned_counts_optimised(data_dir, day_folders, channels_to_use = ["sig_A_counts", "sig_B_counts", "ref_counts", "seed_LD_current"])
+test_data, bin_data_dict = misaligned_counts(data_dir, day_folders, channels_to_use = ["sig_A_counts", "sig_B_counts", "ref_counts", "seed_LD_current"])
             
                 
                 
