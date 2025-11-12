@@ -142,6 +142,7 @@ def gen_processing_var(data_dir, day_folders, channel_format, channel_count):
     
     log_df_hard_restart = log_df[hard_mask].copy()
     log_df_hard_restart['time_reset_index'] = range(log_df_hard_restart.shape[0])
+    log_df_hard_restart.drop(columns=['restart_index'], inplace=True)
     
     log_df_soft_restart = log_df[soft_mask].copy()
     
@@ -149,8 +150,8 @@ def gen_processing_var(data_dir, day_folders, channel_format, channel_count):
     comb_df_soft_restart = pd.merge(bin_df, log_df_soft_restart, on='restart_index')
     
     # Restrict to columns of interest
-    comb_df = comb_df[['date', 'bin_filename', 'log_filename', 'log_start_datetime']]
-    comb_df_soft_restart = comb_df_soft_restart[['date', 'bin_filename', 'log_filename', 'log_start_datetime']]
+    comb_df = comb_df[['date', 'bin_filename', 'log_filename', 'log_start_datetime', 'restart_index', 'time_reset_index']]
+    comb_df_soft_restart = comb_df_soft_restart[['date', 'bin_filename', 'log_filename', 'log_start_datetime', 'restart_index']]
     num_soft_restarts = len(comb_df_soft_restart)
     
     processing_variables_file_path = os.path.join(data_dir, 'processing_variables.txt')
@@ -163,7 +164,6 @@ def gen_processing_var(data_dir, day_folders, channel_format, channel_count):
         print(f'\n{num_soft_restarts} soft restarts found'
               f'\nSoft restarts file created at: \n{soft_restarts_file_path}')
     
-
 def import_HK_data(data_dir, day_folders):
     """
     Imports and concatenates data from multiple Housekeeping (HK) files in a 
