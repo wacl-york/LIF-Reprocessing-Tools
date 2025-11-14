@@ -35,9 +35,6 @@ HK_headers_dict = ['Task', 'NO_Cell_Flow', 'NO2_Cell_Flow', 'Ref_Cell_SLPM'
                      , 'Cal_NO_MFC_set', 'Cal_NO_MFC_Read', 'Cal_SB_MFC_Read'
                      , 'Ref_NO_MFC_Read', 'BLC_0_flag', 'BLC_1_flag'] 
 
-
-
-
 processing_variables = pd.read_csv(os.path.join(data_dir, 'processing_variables.txt'))
 
 HK_data = lif.import_HK_data(data_dir, day_folders)

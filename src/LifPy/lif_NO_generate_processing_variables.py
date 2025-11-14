@@ -7,6 +7,10 @@ required for binary reprocessing.
 Details of file structure and how to run this code are found in a README file 
 in the LIF-Reprocessing-Tools github.
 
+If the data were collected after the FPGA code was updated and no misaligned 
+files are expected, comment out the call to lif.misaligned_counts and run only 
+the processing variables.
+
 '''
 import lif_functions as lif
 
@@ -28,3 +32,6 @@ channel_format ={
 }
 
 lif.gen_processing_var(data_dir, day_folders, channel_format, channel_count)
+
+lif.misaligned_counts(data_dir, day_folders, channel_format, channel_count
+                  , cal_task=5, molecule='NO', plot=True)
