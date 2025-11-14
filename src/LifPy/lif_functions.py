@@ -1104,37 +1104,73 @@ def misaligned_counts(data_dir, day_folders, channel_format, channel_count
         start_indices = cal_transitions[cal_transitions == 1.0].index
         if len(start_indices) == 0:
             print('\tcannot check for misalignment - no calibration found in this file')
-            continue
-        first_start_index = start_indices[0]
-        end_indices = cal_transitions[(cal_transitions == -1.0) & (cal_transitions.index > first_start_index)].index
-        if len(end_indices) > 0:
-            first_end_index = end_indices[0]
-            cal_section = data_df.loc[first_start_index : first_end_index - 1]
+            #continue
+        
+            this_file = soft_restarts['bin_filename'].iloc[i]
+            this_file_mask = processing_variables['bin_filename'] == this_file
+            next_file = processing_variables['bin_filename'].shift(-1)[this_file_mask].iloc[0]
+            next_file_log = processing_variables['log_start_datetime'].shift(-1)[this_file_mask].iloc[0]
+            next_file_date = int(processing_variables['date'].shift(-1)[this_file_mask].iloc[0])
+            this_file_restart_index = processing_variables['restart_index'][this_file_mask].iloc[0]
+            next_file_restart_index = processing_variables['restart_index'].shift(-1)[this_file_mask].iloc[0]
+            if this_file_restart_index != next_file_restart_index:
+                print('no more files to check during this restart')
+                continue
+            else:
+                print(f'\nchecking next file: {next_file}')
+                log_start_datetime_seconds = format_log_start_datetime(next_file_log)
+                bin_data = import_bin_data(data_dir, str(next_file_date), next_file)
+                bin_data_dict = deinterleave_bin_data(bin_data, channel_format, channel_count)
+                bin_time_arr, HK_start_ind, HK_end_ind = align_bin_HK(bin_data_dict, log_start_datetime_seconds, HK_data)
+                HK_time = HK_data['Time_s']
+                HK_time_slice = HK_time[HK_start_ind : HK_end_ind + 1]
+                HK_ind_relative = np.searchsorted(HK_time_slice, bin_time_arr)
+                HK_ind_relative = np.clip(HK_ind_relative, 0, len(HK_time_slice) - 1)
+                HK_ind_absolute = HK_start_ind + HK_ind_relative
+                data_df = pd.DataFrame()
+                for channel in channels_to_use:
+                     # Slices the array up to the length of the bin_time_arr
+                     data_df[channel] = bin_data_dict[channel][:len(bin_time_arr)]
+                data_df['seed_LD_mode'] = bin_data_dict['seed_LD_mode'][:len(bin_time_arr)]
+                data_df['Task'] = HK_data['Task'][HK_ind_absolute]
+                data_df[f'Cal_{molecule}_MFC_set'] = HK_data[f'Cal_{molecule}_MFC_set'][HK_ind_absolute]
+                is_cal = data_df['Task'] == cal_task
+                cal_transitions = is_cal.astype(int).diff().fillna(0)
+                start_indices = cal_transitions[cal_transitions == 1.0].index
+                if len(start_indices) == 0:
+                    print('\tcannot check for misalignment - no calibration found in second file')
+                    continue        
+        
+        
         else:
-            print('\tmisalignment analysis may be unreliable - Calibration runs to the end of the file.')
-            cal_section = data_df.loc[first_start_index:]
-        if len(cal_section) == 0:
-            print('\tno calibration found in this file (section was empty after slicing)')
-            continue
+            first_start_index = start_indices[0]
+            end_indices = cal_transitions[(cal_transitions == -1.0) & (cal_transitions.index > first_start_index)].index
+            if len(end_indices) > 0:
+                first_end_index = end_indices[0]
+                cal_section = data_df.loc[first_start_index : first_end_index - 1]
+            else:
+                print('\tmisalignment analysis may be unreliable - Calibration runs to the end of the file.')
+                cal_section = data_df.loc[first_start_index:]
+                
+            highest_cal_point = cal_section[f'Cal_{molecule}_MFC_set'].max()
+            test_section = cal_section[cal_section[f'Cal_{molecule}_MFC_set'] == highest_cal_point]
             
-        highest_cal_point = cal_section[f'Cal_{molecule}_MFC_set'].max()
-        test_section = cal_section[cal_section[f'Cal_{molecule}_MFC_set'] == highest_cal_point]
-        
-        test_section_length = len(test_section)
-        start_index = int(test_section_length * 0.2)
-        end_index = int(test_section_length * 0.8)
-        test_section = test_section[start_index:end_index]
-        
-        test_section_shifted = test_section.copy()
+            test_section_length = len(test_section)
+            start_index = int(test_section_length * 0.2)
+            end_index = int(test_section_length * 0.8)
+            test_section = test_section[start_index:end_index]
+            
+            test_section_shifted = test_section.copy()
         
         for channel in channels_to_use:     
-            sum_of_sds = 0
+            #sum_of_sds = 0
             sds_results = []
            
             # For each lag (0, 1, -1)
             #these are the defined shifts. These may change.
             for lag in [0, -1, 1]:
                 
+                sum_of_sds = 0
                 test_section_lag = test_section.copy()
                 test_section_lag[channel] = test_section_lag[channel].shift(lag) 
            
@@ -1149,7 +1185,7 @@ def misaligned_counts(data_dir, day_folders, channel_format, channel_count
                     sum_of_sds += values.std()
                 
                 sds_results.append((sum_of_sds, lag))
-            #print(channel, '', sds_results)
+            print(channel, '', sds_results)
 
                
             # Find lag with minimum sum of sds. NB: min() of a list of tuples sorts by
@@ -1201,7 +1237,7 @@ def misaligned_counts(data_dir, day_folders, channel_format, channel_count
     )
     
     processing_variables_shifts[shift_columns] = processing_variables_shifts[shift_columns].fillna(0)
-    processing_variables_shifts = processing_variables_shifts.drop(columns=['restart_index'])
+    #processing_variables_shifts = processing_variables_shifts.drop(columns=['restart_index'])
 
     # Overwrite the processing variables file with the shifts appended
     processing_variables_shifts.to_csv(processing_variables_file_path, index=False)
