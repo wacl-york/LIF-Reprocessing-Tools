@@ -8,8 +8,8 @@ Details of file structure and how to run this code are found in a README file
 in the LIF-Reprocessing-Tools github.
 
 If the data were collected after the FPGA code was updated and no misaligned 
-files are expected, comment out the call to lif.misaligned_counts and run only 
-the processing variables.
+files are expected, comment out the call to lif.misaligned_counts() and run 
+only the processing variables.
 
 '''
 import lif_functions as lif

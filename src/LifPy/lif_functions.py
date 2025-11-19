@@ -477,58 +477,6 @@ def deinterleave_bin_data(bin_data, channel_format, channel_count,
                     / (bin_data_dict['laser_pwr_PT0'])
 
     return bin_data_dict
-
-def shift_correction(file, shift_file, channel_format):
-    """
-    Generates a dictionary of time shifts for data channels based on a 
-    configuration file and returns the shift value for 'seed_LD_mode'.
-
-    The function initializes a shift dictionary with zero shift for all 
-    channels. It then checks if the current file name is listed in the shift 
-    configuration and applies the specified non-zero shift to the corresponding 
-    channel header. Finally, it returns the specific shift applied to 
-    'seed_LD_mode' (which is 0 by default).
-
-    Parameters
-    ----------
-    file_name : str
-        The name of the current data file being processed.
-    file_shift : pandas.DataFrame or dict
-        A dataframe containing shift information. Must have columns 
-        'name', 'col_name', and 'shift'.
-        - 'name': The file name (str) to check against.
-        - 'col_name': The channel name (str) to shift.
-        - 'shift': The shift value (int or float) to apply.
-    channel_names : list of str
-        A list of all possible data channel names (headers).
-
-    Returns
-    -------
-    int or float
-        The specific shift value applied to the 'seed_LD_mode' channel. 
-        Returns 0 if no file-specific shift is configured for this channel 
-        or file.
-
-    Notes
-    -----
-    Function prints a message indicating whether a shift was applied or not.
-    """
-    
-    shift_dict = {name: 0 for name in list(channel_format)}
-
-    if file in list(shift_file['name']):
-        shift_header = \
-            shift_file['col_name'][list(shift_file['name']).index(file)]
-        shift = shift_file['shift'][list(shift_file['name']).index(file)]
-        shift_dict[shift_header] = shift
-        print('Shifting binary data %s series by %.0f' % (shift_header, shift))
-
-    else:
-        print('No file shifting neccessary')
-        
-    shift_correction = shift_dict['seed_LD_mode']
-
-    return shift_correction
  
 def gen_output_file(data_dir, file, channel_format, HK_headers_dict
                     , HK_data, date):
@@ -687,9 +635,10 @@ def align_bin_HK(bin_data_dict, log_start_datetime_seconds, HK_data):
         
     return bin_time_arr, HK_start_ind, HK_end_ind 
     
-def gen_output_data(channel_format, bin_data_dict, HK_data, HK_headers_dict, 
+def gen_output_data(file, channel_format, data_dir, bin_data_dict, HK_data, HK_headers_dict, 
                     data_freq, bin_time_arr, HK_start_ind, HK_end_ind, 
-                    nan_data, processed_file, shift_correction, histograms):
+                    nan_data, processed_file
+                    , histograms):
     """
     Processes, averages, aligns, and writes binary and Housekeeping (HK) data 
     to the output file, supporting both 10Hz averaged data and 100Hz 
@@ -735,6 +684,48 @@ def gen_output_data(channel_format, bin_data_dict, HK_data, HK_headers_dict,
     None
         Data is written directly to the processed_file (side effect).
     """
+    processing_variables = pd.read_csv(os.path.join(
+        data_dir, 'processing_variables.txt')
+        )
+    this_file_index = processing_variables[
+        processing_variables['bin_filename'] == file].index[0]
+    
+    for channel in channel_format:
+        shift_column = f'{channel}_shift'
+        if shift_column in processing_variables.columns:
+            shift_value = int(processing_variables[shift_column][this_file_index])
+        else:
+            shift_value = 0
+        data_array = bin_data_dict[channel]
+        original_length = len(data_array)
+        if shift_value == 0:
+            continue
+        elif shift_value > 0:
+        # Positive shift (data moves right): Pad the beginning (left) with NaNs.
+            pad_width = (shift_value, 0)
+            shifted_array = np.pad(
+                data_array, 
+                pad_width, 
+                mode='constant', 
+                constant_values=np.nan
+            )
+            # Slice off the end to maintain original length
+            bin_data_dict[channel] = shifted_array[:original_length]
+        elif shift_value < 0:
+        # Negative shift (data moves left): Pad the end (right) with NaNs.
+            abs_shift = abs(shift_value)
+            pad_width = (0, abs_shift)
+            shifted_array = np.pad(
+                data_array, 
+                pad_width, 
+                mode='constant', 
+                constant_values=np.nan
+            )
+            # Slice off the beginning to maintain original length
+            bin_data_dict[channel] = shifted_array[abs_shift:]   
+    
+    
+    
     cts_ind_arr = [i for i in range(0, len(list(bin_data_dict)))
                        if 'sig_' in list(bin_data_dict)[i]
                            and '_lin' in list(bin_data_dict)[i]]
@@ -779,12 +770,12 @@ def gen_output_data(channel_format, bin_data_dict, HK_data, HK_headers_dict,
         # finds the periods where the laser is in constant mode and
         # replaces all values with nan values
         # In seed LD mode, 1 defines constant mode
-        if seed_LD_mode[i + shift_correction] != 1 and \
-        seed_LD_mode[i + 1 + shift_correction] == 1:
+        if seed_LD_mode[i] != 1 and \
+        seed_LD_mode[i + 1] == 1:
             for j in range(tot_steps - i):
-                if seed_LD_mode[i + j + shift_correction] == 1 \
+                if seed_LD_mode[i + j] == 1 \
                 and seed_LD_mode \
-                    [i + j + 1 + shift_correction] != 1:  
+                    [i + j + 1] != 1:  
                     time_fill = \
                         list(np.arange(bin_time_ms[i]
                                        , bin_time_ms[i + j] + 1
@@ -801,8 +792,8 @@ def gen_output_data(channel_format, bin_data_dict, HK_data, HK_headers_dict,
 
             # finds point of online/offline switch
             # In seed LD mode, 5 defines offline point, 6 defines online point
-            if seed_LD_mode[i + shift_correction] == 6 and \
-            seed_LD_mode[i + 1 + shift_correction] == 5: 
+            if seed_LD_mode[i] == 6 and \
+            seed_LD_mode[i + 1] == 5: 
                 if (bin_time_ms[i] - bin_time[-1] != 0) and (i >= 7): 
                     bin_time.append(bin_time_ms[i]) 
                     
@@ -1011,9 +1002,6 @@ def reprocess_binary_data(date, file, log_start_datetime, HK_headers_dict
     
     print('\nReprocessing file %s' % file)
     
-    shift_file = pd.read_csv(
-        os.getcwd() + '\\lib\\misalligned_files.txt', header=0, delimiter=','
-        )
     log_start_datetime_seconds = format_log_start_datetime(
         log_start_datetime
         )
@@ -1023,9 +1011,6 @@ def reprocess_binary_data(date, file, log_start_datetime, HK_headers_dict
     bin_data_dict = deinterleave_bin_data(
         bin_data, channel_format, channel_count
         )
-    shft_correction = shift_correction(
-        file, shift_file, channel_format
-        )
     processed_file, nan_data = gen_output_file(
         data_dir, file, channel_format, HK_headers_dict, HK_data, date
         )
@@ -1033,9 +1018,9 @@ def reprocess_binary_data(date, file, log_start_datetime, HK_headers_dict
         bin_data_dict, log_start_datetime_seconds, HK_data
         )
     gen_output_data(
-        channel_format, bin_data_dict, HK_data, HK_headers_dict, data_freq
+        file, channel_format, data_dir, bin_data_dict, HK_data, HK_headers_dict, data_freq
         , bin_time_arr, HK_start_ind, HK_end_ind, nan_data, processed_file
-        , shft_correction, histograms
+        , histograms
         )
 
 def misaligned_counts(data_dir, day_folders, channel_format, channel_count
