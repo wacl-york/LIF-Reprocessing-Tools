@@ -39,9 +39,9 @@ for i in processing_variables.index:
     
     lif.reprocess_binary_data(
         data_freq = 10 # can take 10 or 100
-        , date = processing_variables['date'][i]
-        , file = processing_variables['bin_filename'][i]
-        , log_start_datetime = processing_variables['log_start_datetime'][i]
+        , date = str(processing_variables['date'][i])
+        , file = str(processing_variables['bin_filename'][i])
+        , log_start_datetime = str(processing_variables['log_start_datetime'][i])
         , data_dir = data_dir
         , HK_data = HK_data
         , channel_count = channel_count

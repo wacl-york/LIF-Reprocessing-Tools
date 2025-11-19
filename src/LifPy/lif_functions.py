@@ -1114,7 +1114,7 @@ def misaligned_counts(data_dir, day_folders, channel_format, channel_count
             this_file_restart_index = processing_variables['restart_index'][this_file_mask].iloc[0]
             next_file_restart_index = processing_variables['restart_index'].shift(-1)[this_file_mask].iloc[0]
             if this_file_restart_index != next_file_restart_index:
-                print('no more files to check during this restart')
+                print('\tno more files to check during this restart')
                 continue
             else:
                 print(f'\nchecking next file: {next_file}')
@@ -1185,7 +1185,7 @@ def misaligned_counts(data_dir, day_folders, channel_format, channel_count
                     sum_of_sds += values.std()
                 
                 sds_results.append((sum_of_sds, lag))
-            print(channel, '', sds_results)
+            #print(channel, '', sds_results)
 
                
             # Find lag with minimum sum of sds. NB: min() of a list of tuples sorts by
