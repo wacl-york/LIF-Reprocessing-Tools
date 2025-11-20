@@ -1124,28 +1124,27 @@ def misaligned_counts(data_dir, day_folders, channel_format, channel_count
                 start_indices = cal_transitions[cal_transitions == 1.0].index
                 if len(start_indices) == 0:
                     print('\tcannot check for misalignment - no calibration found in second file')
-                    continue        
+                    continue           
         
-        
+
+        first_start_index = start_indices[0]
+        end_indices = cal_transitions[(cal_transitions == -1.0) & (cal_transitions.index > first_start_index)].index
+        if len(end_indices) > 0:
+            first_end_index = end_indices[0]
+            cal_section = data_df.loc[first_start_index : first_end_index - 1]
         else:
-            first_start_index = start_indices[0]
-            end_indices = cal_transitions[(cal_transitions == -1.0) & (cal_transitions.index > first_start_index)].index
-            if len(end_indices) > 0:
-                first_end_index = end_indices[0]
-                cal_section = data_df.loc[first_start_index : first_end_index - 1]
-            else:
-                print('\tmisalignment analysis may be unreliable - Calibration runs to the end of the file.')
-                cal_section = data_df.loc[first_start_index:]
-                
-            highest_cal_point = cal_section[f'Cal_{molecule}_MFC_set'].max()
-            test_section = cal_section[cal_section[f'Cal_{molecule}_MFC_set'] == highest_cal_point]
+            print('\tmisalignment analysis may be unreliable - Calibration runs to the end of the file.')
+            cal_section = data_df.loc[first_start_index:]
             
-            test_section_length = len(test_section)
-            start_index = int(test_section_length * 0.2)
-            end_index = int(test_section_length * 0.8)
-            test_section = test_section[start_index:end_index]
-            
-            test_section_shifted = test_section.copy()
+        highest_cal_point = cal_section[f'Cal_{molecule}_MFC_set'].max()
+        test_section = cal_section[cal_section[f'Cal_{molecule}_MFC_set'] == highest_cal_point]
+        
+        test_section_length = len(test_section)
+        start_index = int(test_section_length * 0.2)
+        end_index = int(test_section_length * 0.8)
+        test_section = test_section[start_index:end_index]
+        
+        test_section_shifted = test_section.copy()
         
         for channel in channels_to_use:     
             #sum_of_sds = 0

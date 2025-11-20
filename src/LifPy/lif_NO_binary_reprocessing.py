@@ -15,7 +15,7 @@ import pandas as pd
 import lif_functions as lif    
  
 data_dir = ('C:\\Users\\pp835\\OneDrive - University of York\\Documents\\'
-               'Data Analysis\\CARES\\Mace Head Binary Data Analysis\\Data2')
+               'Data Analysis\\CARES\\Mace Head Binary Data Analysis\\Data')
 
 day_folders = lif.find_day_folders(data_dir)
 
@@ -36,7 +36,7 @@ HK_headers_dict = ['Task', 'NO_Cell_Flow', 'NO2_Cell_Flow', 'Ref_Cell_SLPM'
                      , 'Ref_NO_MFC_Read', 'BLC_0_flag', 'BLC_1_flag'] 
 
 processing_variables = pd.read_csv(os.path.join(data_dir, 'processing_variables.txt'))
-date_mask = processing_variables['date'] >= 20250601
+date_mask = processing_variables['date'] >= 20250622
 processing_variables = processing_variables[date_mask]
 
 HK_data = lif.import_HK_data(data_dir, day_folders)
