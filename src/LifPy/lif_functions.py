@@ -151,13 +151,13 @@ def gen_processing_var(data_dir, day_folders, channel_format, channel_count):
     # print diagnostics to the console
     processing_variables_file_path = os.path.join(data_dir, 'processing_variables.txt')
     processing_var_df.to_csv(processing_variables_file_path, index=False)
-    print(f'Processing variables file created at:\n{processing_variables_file_path}'
-          f'\n{num_soft_restarts} soft restarts found'
+    print(f'\nProcessing variables file created at:\n{processing_variables_file_path}'
+          f'\n\n{num_soft_restarts} soft restarts found'
           )
     if num_soft_restarts > 0:
         soft_restarts_file_path = os.path.join(data_dir, 'soft_restarts.txt')
         soft_restart_df.to_csv(soft_restarts_file_path, index=False)
-        print(f'Soft restarts file created at: \n{soft_restarts_file_path}')
+        print(f'\nSoft restarts file created at: \n{soft_restarts_file_path}')
     
 def import_HK_data(data_dir, day_folders):
     """
@@ -1037,6 +1037,7 @@ def misaligned_counts(data_dir, day_folders, channel_format, channel_count
     for channel in channels_to_use:
         soft_restarts[f'{channel}_shift'] = 0
         
+    unchecked_restarts = []
 
     # Loop through each soft restart 
     for i in soft_restarts.index:
@@ -1087,22 +1088,30 @@ def misaligned_counts(data_dir, day_folders, channel_format, channel_count
         is_cal = data_df['Task'] == cal_task
         cal_transitions = is_cal.astype(int).diff().fillna(0)
         start_indices = cal_transitions[cal_transitions == 1.0].index
-        if len(start_indices) == 0:
-            print('\tcannot check for misalignment - no calibration found in this file')
-            #continue
         
-            this_file = soft_restarts['bin_filename'].iloc[i]
-            this_file_mask = processing_variables['bin_filename'] == this_file
-            next_file = processing_variables['bin_filename'].shift(-1)[this_file_mask].iloc[0]
-            next_file_log = processing_variables['log_start_datetime'].shift(-1)[this_file_mask].iloc[0]
-            next_file_date = int(processing_variables['date'].shift(-1)[this_file_mask].iloc[0])
-            this_file_restart_index = processing_variables['restart_index'][this_file_mask].iloc[0]
-            next_file_restart_index = processing_variables['restart_index'].shift(-1)[this_file_mask].iloc[0]
-            if this_file_restart_index != next_file_restart_index:
-                print('\tno more files to check during this restart')
-                continue
+        file_shift = 0
+        
+        while len(start_indices) == 0:
+            print('\tcannot check for misalignment - no calibration found in this file')
+            
+            file_shift += 1
+            
+            first_file = soft_restarts['bin_filename'].iloc[i]
+            first_file_mask = processing_variables['bin_filename'] == first_file
+            
+            first_file_restart_index = processing_variables['restart_index'][first_file_mask].iloc[0]
+            next_file_restart_index = processing_variables['restart_index'].shift(-file_shift)[first_file_mask].iloc[0]
+            if first_file_restart_index != next_file_restart_index:
+                print('\tReached end of restart sequence. Skipping remaining check.')
+                unchecked_restarts.append((first_file, first_file_restart_index))
+                break
             else:
-                print(f'\nchecking next file: {next_file}')
+                next_file = processing_variables['bin_filename'].shift(-file_shift)[first_file_mask].iloc[0]
+                next_file_log = processing_variables['log_start_datetime'].shift(-file_shift)[first_file_mask].iloc[0]
+                next_file_date = int(processing_variables['date'].shift(-file_shift)[first_file_mask].iloc[0])
+                
+                print(f'\tchecking next file: {next_file}')
+                
                 log_start_datetime_seconds = format_log_start_datetime(next_file_log)
                 bin_data = import_bin_data(data_dir, str(next_file_date), next_file)
                 bin_data_dict = deinterleave_bin_data(bin_data, channel_format, channel_count)
@@ -1112,6 +1121,7 @@ def misaligned_counts(data_dir, day_folders, channel_format, channel_count
                 HK_ind_relative = np.searchsorted(HK_time_slice, bin_time_arr)
                 HK_ind_relative = np.clip(HK_ind_relative, 0, len(HK_time_slice) - 1)
                 HK_ind_absolute = HK_start_ind + HK_ind_relative
+                
                 data_df = pd.DataFrame()
                 for channel in channels_to_use:
                      # Slices the array up to the length of the bin_time_arr
@@ -1122,11 +1132,11 @@ def misaligned_counts(data_dir, day_folders, channel_format, channel_count
                 is_cal = data_df['Task'] == cal_task
                 cal_transitions = is_cal.astype(int).diff().fillna(0)
                 start_indices = cal_transitions[cal_transitions == 1.0].index
-                if len(start_indices) == 0:
-                    print('\tcannot check for misalignment - no calibration found in second file')
-                    continue           
+                
+                
+        if len(start_indices) == 0:
+            continue
         
-
         first_start_index = start_indices[0]
         end_indices = cal_transitions[(cal_transitions == -1.0) & (cal_transitions.index > first_start_index)].index
         if len(end_indices) > 0:
@@ -1207,7 +1217,6 @@ def misaligned_counts(data_dir, day_folders, channel_format, channel_count
                 ax.legend()
             plt.tight_layout()
             plt.show()
-        
 
     # merge the shift values onto the processing variables df based on restart index
     shift_columns  = [f'{channel}_shift' for channel in channels_to_use]
@@ -1226,6 +1235,11 @@ def misaligned_counts(data_dir, day_folders, channel_format, channel_count
     # Overwrite the processing variables file with the shifts appended
     processing_variables_shifts.to_csv(processing_variables_file_path, index=False)
     print('\nProcessing variables file updated to include shift values')
+    header = ('\n\nThe following periods could not be analysed for misaligned data as no calibration was found between restarts:'
+              '\nFirst file after restart,    Restart index')
+    data_lines = [f"\n{restart[0]},    {restart[1]}" for restart in unchecked_restarts]
+    print(header + "".join(data_lines))
+
 
 """
 This section contains all of the sub-functions that are used in the analysis 

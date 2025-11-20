@@ -15,7 +15,7 @@ only the processing variables.
 import lif_functions as lif
 
 data_dir = ('C:\\Users\\pp835\\OneDrive - University of York\\Documents\\'
-               'Data Analysis\\CARES\\Mace Head Binary Data Analysis\\Data')
+               'Data Analysis\\CARES\\Mace Head Binary Data Analysis\\Data2')
 
 day_folders = lif.find_day_folders(data_dir)
 
@@ -33,5 +33,5 @@ channel_format ={
 
 lif.gen_processing_var(data_dir, day_folders, channel_format, channel_count)
 
-#lif.misaligned_counts(data_dir, day_folders, channel_format, channel_count
-#                  , cal_task=5, molecule='NO', plot=True)
+lif.misaligned_counts(data_dir, day_folders, channel_format, channel_count
+                  , cal_task=5, molecule='NO', plot=True)
