@@ -1029,10 +1029,14 @@ def misaligned_counts(data_dir, day_folders, channel_format, channel_count
     excluded_channels = ['laser_pwr_PT0', 'seed_LD_mode', 'time_ms']
     channels_to_use = [key for key in channel_format.keys() if key not in excluded_channels]
     
-    HK_data = import_HK_data(data_dir, day_folders)
     processing_variables_file_path = os.path.join(data_dir, 'processing_variables.txt')
     processing_variables = pd.read_csv(processing_variables_file_path).copy()
+    soft_restarts_file_path = os.path.join(data_dir, 'soft_restarts.txt')
+    if not os.path.exists(soft_restarts_file_path):
+        print('\nNo soft restarts identified - misalignment check not required')
+        return
     soft_restarts = pd.read_csv(os.path.join(data_dir, 'soft_restarts.txt')).copy()
+    HK_data = import_HK_data(data_dir, day_folders)
     
     for channel in channels_to_use:
         soft_restarts[f'{channel}_shift'] = 0
