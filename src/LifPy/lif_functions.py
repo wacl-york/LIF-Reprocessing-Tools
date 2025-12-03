@@ -3,13 +3,17 @@ import os
 import re
 import sys
 
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
-from datetime import datetime as dt
 from itertools import islice
+from scipy import stats
+from scipy.interpolate import interp1d
 from sklearn.linear_model import LinearRegression
-import matplotlib.pyplot as plt
+
+from datetime import datetime as dt
+
 
 """
 This first section contains all of the sub-functions that are subsequently 
@@ -1246,24 +1250,37 @@ def misaligned_counts(data_dir, day_folders, channel_format, channel_count
 
 
 """
-This section contains all of the sub-functions that are used in the analysis 
-stage of data processing.
+This section contains all of the sub-functions that are used in the 
+interpretation of counts data to give mixing ratios.
 
 """
 
-def read_processed_files(path):
+def read_processed_files(data_dir, day_folders):
     
+    print('\nreading Processed files:\n')
     
     dfs = []
     
-    for root, dirs, files in os.walk(path):
-    
-        file_list = [f for f in files 
-                     if f.startswith('20')
-                     and f.endswith('.txt')]
+    for day in day_folders:
+        
+        file_list = []
+        processed_dir = os.path.join(data_dir, day, f"LIFProcessed_{day}")
+        if not os.path.isdir(processed_dir):
+            print(f"Warning: Directory not found for day {day}: {processed_dir}")
+            continue
+        
+        file_list.extend(file_name for file_name in os.listdir(processed_dir) 
+                         if file_name.startswith('20') 
+                         and file_name.endswith('.txt'))
+
+        if not file_list:
+            continue
         
         for file in file_list:
-            file_path = os.path.join(root, file)
+            
+            print(f'\r{file}', end='')
+            
+            file_path = os.path.join(processed_dir, file)
             try:
                 df = pd.read_csv(file_path, header=7)
                 dfs.append(df)
@@ -1335,63 +1352,87 @@ def set_flags(data, pre_TS, post_TS, pre_PF, post_PF, ref_cts_limit):
     
     return data
 
-def zero_correct(cts_data, channels, plot=False):
+def zero_correct_average(cts_data, channels, plot=False):
     
-    cts_data = cts_data.copy()
+    # use a mask to select all of the zero data associated with task 4
+    # set the index to Date_time for averaging later
+    cts_data_zero = cts_data.copy()
+    start_of_zero = (cts_data_zero['Task'] == 4) & (cts_data_zero['Task'].shift(1) != 4)
+    cts_data_zero['zero_number'] = start_of_zero.cumsum()
+    cts_data_zero = cts_data_zero[(cts_data_zero['Task']==4) & (cts_data_zero['Peak_find_flag']==0)]
+    grouped_zeros = cts_data_zero.groupby('zero_number')
+    
+    if 'sig_B' in channels:
+        
+        cts_data_zero['sig_B_diff_cts_ref_norm'] = np.where(
+            (cts_data_zero['BLC_0_flag'] == 1.0) & (cts_data_zero['BLC_1_flag'] == 1.0)
+            , cts_data_zero['sig_B_diff_cts_ref_norm']
+            , np.nan
+            )
     
     for channel in channels:
-    
-        cts_data_zero = cts_data[(cts_data['Task']==4) & (cts_data['Peak_find_flag']==0)].copy()
-        
-        column_name = f'{channel}_diff_cts_norm'
-        
-        data_series = cts_data_zero[column_name]
-        mean_val = np.nanmean(data_series)
-        std_val = np.nanstd(data_series)
-                
-        lower_limit = mean_val - 10 * std_val
-        upper_limit = mean_val + 10 * std_val
 
+        column_name = f'{channel}_diff_cts_ref_norm'
         
-        spike_mask = (data_series > lower_limit) & (data_series < upper_limit)
-        cts_data_zero = cts_data_zero[spike_mask].copy()
-        mean_zero = np.nanmean(cts_data_zero[column_name])
-    
-        print(f"{channel} mean zero is {mean_zero} cts mW-1 s-1")
+        zero_stats = grouped_zeros.agg({
+            column_name: ['mean', 'std', 'count'],
+            'Date_time': 'mean'
+            }).dropna()
         
-        cts_data_zero = cts_data_zero.set_index('Date_time')
-        cts_data_zero = cts_data_zero.resample('12h').mean()
-        cts_data_zero = cts_data_zero.reset_index()
-    
+        # Flattening the MultiIndex columns
+        zero_stats.columns = ['_'.join(col).strip() for col in zero_stats.columns.values]
+        
+        # Renaming for clarity
+        zero_stats = zero_stats.rename(columns={
+            'Date_time_mean': 'zero_midpoint'
+        })
+        
+        mean_zero = zero_stats[f'{column_name}_mean'].mean()
+        std_zero = zero_stats[f'{column_name}_mean'].std()
+        lower_limit = mean_zero - 3*std_zero
+        upper_limit = mean_zero + 3*std_zero
+        spike_mask = ((zero_stats[f'{column_name}_mean'] > lower_limit)
+            & (zero_stats[f'{column_name}_mean'] < upper_limit))
+        
+        zero_stats = zero_stats[spike_mask]
+        
+        mean_zero_spikes_removed = zero_stats[f'{column_name}_mean'].mean()
+        print(f'\n{channel}:\nmean zero before spike removal = {mean_zero}'
+              f'\nmean zero after spike removal = {mean_zero_spikes_removed}')
+        
+        mean_correction = mean_zero_spikes_removed # The overall mean after spike removal
+        correction_values = np.full(len(cts_data), mean_correction)
+        
+        cts_data[f'{channel}_zero_offset'] = correction_values
+        cts_data[f'{channel}_diff_cts_ref_norm_zero_corr'] = cts_data[column_name] - correction_values
+        print(f'zero correction applied to {channel}')
         
         if plot:
             
-            fig, ax = plt.subplots(2, 2, figsize=(14, 6))
-    
-            ax[0,0].plot(cts_data_zero['Date_time'], cts_data_zero[f'{channel}_diff_cts_norm'])
-            ax[0,0].set_xlabel('Date_time')
-            ax[0,0].set_ylabel(f'{channel}_diff_cts')
-            ax[0,0].set_title(f'{channel} diff counts zero')
-    
-            ax[0,1].plot(cts_data_zero['Date_time'], cts_data_zero[f'{channel}_diff_cts_ref_norm'])
-            ax[0,1].set_xlabel('Date_time')
-            ax[0,1].set_ylabel(f'{channel}_diff_cts_ref_norm')
-            ax[0,1].set_title(f'{channel} diff counts ref norm zero')
-    
-            ax[1,0].hist(cts_data_zero[f'{channel}_diff_cts_norm'], bins=50)
-            ax[1,0].set_xlabel(f'{channel}_diff_cts')
-    
-            ax[1,1].hist(cts_data_zero[f'{channel}_diff_cts_ref_norm'], bins=50)
-            ax[1,1].set_xlabel(f'{channel}_diff_cts_ref_norm')          
+            fig, ax = plt.subplots( 2, 1, figsize=(12, 8))
+            
+            ax[0].errorbar(zero_stats['zero_midpoint']
+                             , zero_stats[f'{column_name}_mean']
+                             , yerr=zero_stats[f'{column_name}_std']
+                             , linestyle=''
+                             , marker='o'
+                             , markersize=2
+                             , capsize=2
+                             , label='zero measurement means, +/- 1std'
+                             )
+            #ax.plot(cts_data_zero['Date_time'], cts_data_zero[column_name], label='raw zero data')
+            ax[0].plot(cts_data['Date_time'], cts_data[f'{channel}_zero_offset'], label='zero correction')
+            ax[0].set_xlabel('Date_time')
+            ax[0].set_ylabel(column_name)
+            ax[0].set_title(f'{channel} zero correction')
+            ax[0].legend()
+            
+            ax[1].hist(zero_stats[f'{column_name}_mean'], bins=50)
+            ax[1].set_xlabel(column_name)
             
             plt.show()
-            
-        
-        cts_data[f'{channel}_diff_cts_norm_zero_corr'] = cts_data[f'{channel}_diff_cts_norm'] - mean_zero
-        cts_data[f'{channel}_diff_cts_ref_norm_zero_corr'] = (
-                                            cts_data[f'{channel}_diff_cts_norm_zero_corr']/cts_data['ref_diff_cts']
-                                            )
-    return cts_data_zero, cts_data
+
+    return cts_data
     
 def analyse_cals(all_data, plot, max_conc, cell, path, molecule):
     """
@@ -1439,7 +1480,7 @@ def analyse_cals(all_data, plot, max_conc, cell, path, molecule):
       filtered calibration period to ensure steady-state conditions.
     """
     
-    file_path = path + f'cell_{cell}_cal_data.txt'
+    file_path = os.path.join(path, f'cell_{cell}_cal_data.txt')
     
     if not os.path.exists(file_path):
         with open(file_path, 'w', newline='') as txtfile:
@@ -1633,7 +1674,16 @@ def analyse_cals(all_data, plot, max_conc, cell, path, molecule):
     
     return(Std_cal_summary, Refnorm_cal_summary)
 
-def analyse_BLC_cals(all_data, plot): 
+def analyse_BLC_cals(all_data, data_dir, plot): 
+    
+    
+    file_path = os.path.join(data_dir, 'BLC_cal_data.txt')
+    
+    if not os.path.exists(file_path):
+        with open(file_path, 'w', newline='') as txtfile:
+                fieldnames = ['cal_start_date_time', 'conversion_efficiency', 'BLC_V']
+                header_row = ','.join(fieldnames)
+                txtfile.write(header_row + '\n') 
     
     data = all_data[['sig_B_diff_cts', 'sig_B_diff_cts_ref_norm', 'Task', 'Date_time', 'BLC_0_flag', 'BLC_1_flag']].copy()
     data.replace([np.inf, -np.inf], np.nan, inplace=True)
@@ -1678,7 +1728,7 @@ def analyse_BLC_cals(all_data, plot):
                 }
             new_data_to_append_df = pd.DataFrame(new_data_to_append)
             
-            new_data_to_append_df.to_csv('BLC_cal_data.txt', mode='a', header=False, index=False, sep=',')
+            new_data_to_append_df.to_csv(file_path, mode='a', header=False, index=False, sep=',')
 
         if plot:
 
@@ -1694,6 +1744,16 @@ def analyse_BLC_cals(all_data, plot):
     plt.show()
 
 
+
+#def gen_MRs():
+    #load data
+    #ref normalise
+    #flag
+    #zero correct
+    #analyse cals
+    #analyse blc cals
+    #apply all cal factors
+    #save new files with MRs in 
 
 
 

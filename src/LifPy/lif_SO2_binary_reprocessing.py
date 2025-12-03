@@ -21,7 +21,7 @@ day_folders = lif.find_day_folders(data_dir)
 channel_count = 10  # 10 = single channel, 11 = dual channel
 
 channel_format ={
-    'sig_A_counts': 0
+    'sig_counts': 0
     , 'ref_counts': 1
     , 'seed_LD_current': 2
     , 'laser_pwr_PT0': [3, 4]
