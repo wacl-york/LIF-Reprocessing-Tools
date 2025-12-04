@@ -477,11 +477,11 @@ def deinterleave_bin_data(bin_data, channel_format, channel_count,
             bin_data_dict[channel + '_norm'] = \
                 bin_data_dict[channel + '_lin'] \
                     / (bin_data_dict['laser_pwr_PT0'])
-
+    
     return bin_data_dict
  
-def gen_output_file(data_dir, file, channel_format, HK_headers_dict
-                    , HK_data, date):
+def gen_output_file(data_dir, data_freq, file, channel_format, HK_headers_dict
+                    , HK_data, date, bin_data_dict):
    """
     Creates and initializes the output text file, writes metadata and all 
     headers, and generates a NaN placeholder string for non-data periods.
@@ -542,40 +542,46 @@ def gen_output_file(data_dir, file, channel_format, HK_headers_dict
    
    processed_file.write(str(cts_met + '\n' + '\n'))
    
-   gen_headers = ('mac_time_s,lsr_pwr_on_mW,lsr_pwr_off_mW,lsr_pwr_mW,'
-               'ref_on_cts,ref_off_cts,ref_diff_cts,ref_on_cts_norm'
-               ',ref_off_cts_norm,ref_diff_cts_norm'
-               )
-                       
-   cts_labels = [name.split('_')[0] + ('_' + name.split('_')[1] if len(name.split('_')) > 2 else '')
-                 for name in list(channel_format)
-                 if '_counts' in name and not name.startswith('ref_')
-                 ]
+   if data_freq == 10:
    
-   cts_headers = ','.join(['%s_on_cts,%s_off_cts,%s_diff_cts'
-                           % (label, label, label) for label in cts_labels]) 
+       gen_headers = ('mac_time_s,lsr_pwr_on_mW,lsr_pwr_off_mW,lsr_pwr_mW,'
+                   'ref_on_cts,ref_off_cts,ref_diff_cts,ref_on_cts_norm'
+                   ',ref_off_cts_norm,ref_diff_cts_norm'
+                   )
+                           
+       cts_labels = [name.split('_')[0] + ('_' + name.split('_')[1] if len(name.split('_')) > 2 else '')
+                     for name in list(channel_format)
+                     if '_counts' in name and not name.startswith('ref_')
+                     ]
        
-   cts_headers_norm = ','.join(['%s_on_cts_norm,%s_off_cts_norm,'
-                                '%s_diff_cts_norm' % (label, label, label)  
-                                for label in cts_labels])
-        
-   binary_headers = gen_headers + ',' + cts_headers + ',' + cts_headers_norm 
-   
-   for HK_ID in list(HK_headers_dict):
-       try:
-           HK_data[HK_ID]
-       except Exception as err:
-           print('\nThere is no HK data header called ' 
-                 + str(err).replace("'", '') + ', so it will be discarded')
-           del HK_headers_dict[HK_ID]
+       cts_headers = ','.join(['%s_on_cts,%s_off_cts,%s_diff_cts'
+                               % (label, label, label) for label in cts_labels]) 
            
-   HK_labels = ','.join(list(HK_headers_dict)) 
-   
-   all_headers = binary_headers + ',' + HK_labels + '\n'
-   
+       cts_headers_norm = ','.join(['%s_on_cts_norm,%s_off_cts_norm,'
+                                    '%s_diff_cts_norm' % (label, label, label)  
+                                    for label in cts_labels])
+            
+       binary_headers = gen_headers + ',' + cts_headers + ',' + cts_headers_norm 
+       
+       for HK_ID in list(HK_headers_dict):
+           try:
+               HK_data[HK_ID]
+           except Exception as err:
+               print('\nThere is no HK data header called ' 
+                     + str(err).replace("'", '') + ', so it will be discarded')
+               del HK_headers_dict[HK_ID]
+               
+       HK_labels = ','.join(list(HK_headers_dict)) 
+       
+       all_headers = binary_headers + ',' + HK_labels + '\n'
+          
+   elif data_freq == 100:
+       
+       bin_headers = ','.join(list(bin_data_dict.keys()))
+       HK_labels = ','.join(list(HK_headers_dict))
+       all_headers = bin_headers + ',' + HK_labels + '\n'
+       
    processed_file.write(all_headers)
-   
-   #processed_file.flush()
    
    nan_data = ','.join(np.full(len(all_headers.split(',')[1::]), str(-9999)))
    
@@ -904,15 +910,21 @@ def gen_output_data(file, channel_format, data_dir, bin_data_dict, HK_data, HK_h
                 curr_time, HK_Time_s, HK_start_ind, HK_end_ind
                 )
          
-            gen_write = f"{curr_time},{laser_pwr_PT0[i]},{ref_counts[i]},{seed_LD_mode[i]}"
-            cts_values_at_i = [bin_data_dict[name][i] \
-                               for name in bin_keys if '_counts_' in name]
-            cts_write = ','.join(map(str, cts_values_at_i))
+# =============================================================================
+#             gen_write = f"{curr_time},{laser_pwr_PT0[i]},{seed_LD_mode[i]},{seed_LD_current}"
+#             cts_values_at_i = [bin_data_dict[name][i] \
+#                                for name in bin_keys if '_counts' in name \
+#                                    and 'ref' not in name]
+# =============================================================================
+            bin_values_at_i = [bin_data_dict[name][i] \
+                               for name in bin_keys]
+            bin_write = ','.join(map(str, bin_values_at_i))
+            #cts_write = ','.join(map(str, cts_values_at_i))
             HK_write = ','.join(
                 [f'{HK_data[key][HK_ind]}' for key in HK_headers]
             )
        
-            output_lines.append(f'{gen_write},{cts_write},{HK_write}\n')   
+            output_lines.append(f'{bin_write},{HK_write}\n')   
          
     processed_file.write(''.join(output_lines))     
 
@@ -1019,7 +1031,8 @@ def reprocess_binary_data(date, file, log_start_datetime, HK_headers_dict
         bin_data, channel_format, channel_count
         )
     processed_file, nan_data = gen_output_file(
-        data_dir, file, channel_format, HK_headers_dict, HK_data, date
+        data_dir, data_freq, file, channel_format, HK_headers_dict
+        , HK_data, date, bin_data_dict
         )
     bin_time_arr, HK_start_ind, HK_end_ind = align_bin_HK(
         bin_data_dict, log_start_datetime_seconds, HK_data
