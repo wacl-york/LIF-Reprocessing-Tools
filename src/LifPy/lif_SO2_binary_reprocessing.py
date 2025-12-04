@@ -29,7 +29,7 @@ channel_format ={
     , 'seed_LD_mode': 9
 }  
 
-HK_headers_dict = ['Task', 'Cell Flow', 'Cal_SO2_MFC_set', 'Cal_SO2_MFC_Read']
+HK_headers_dict = ['Task', 'Cell_Flow', 'Cal_SO2_MFC_set', 'Cal_SO2_MFC_Read']
 
 processing_variables = pd.read_csv(os.path.join(data_dir, 'processing_variables.txt'))
 

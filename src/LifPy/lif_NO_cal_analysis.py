@@ -46,36 +46,37 @@ cts_data_zeroed = lif.zero_correct_average(cts_data_flagged, channels=['sig_A', 
 
 cts_data_MRs = cts_data_zeroed.copy()
 
+
+
+###############################################################################
+#-----------------Tested and optimised up to this point -----------------------
+###############################################################################
+
+
 cts_data_MRs['NO_mr'] = (cts_data_MRs["Cal_NO_MFC_Read"] / (cts_data_MRs["NO_Cell_Flow"]+cts_data_MRs['NO2_Cell_Flow']) * no_cylinder_conc)
 
 
 
-# =============================================================================
-# Std_cal_summary_A, Refnorm_cal_summary_A = lif.analyse_cals(
-#     cts_data_zeroed, plot=False, max_conc=5000, cell='A', path=data_dir
-#     , molecule='NO')
-# 
-# Std_cal_summary_B, Refnorm_cal_summary_B = lif.analyse_cals(
-#     cts_data_zeroed, plot=False, max_conc=5000, cell='B', path=data_dir
-#     , molecule='NO')
-# =============================================================================
+lif.analyse_cals(cts_data_MRs, plot=False, max_conc=5000
+                 , channels=['sig_A', 'sig_B'], data_dir=data_dir
+                 , molecule='NO')
 
-#lif.analyse_BLC_cals(cts_data_zeroed, data_dir, plot=False)
+lif.analyse_BLC_cals(cts_data_MRs, data_dir, plot=False)
 
 
 
-cal_A_df = pd.read_csv(os.path.join(data_dir, 'cell_A_cal_data.txt'))
+cal_A_df = pd.read_csv(os.path.join(data_dir, 'sig_A_cal_data.txt'))
 
 cal_A_df['cal_start_date_time'] = pd.to_datetime(cal_A_df['cal_start_date_time'])
-cal_A_df = cal_A_df[(cal_A_df['cell_A_slope_ref_norm'] > 1)
-                    & (cal_A_df['cell_A_slope_ref_norm'] < 2.8)
+cal_A_df = cal_A_df[(cal_A_df['slope_ref_norm'] > 1)
+                    & (cal_A_df['slope_ref_norm'] < 2.8)
                     ]
 
-cal_B_df = pd.read_csv(os.path.join(data_dir, 'cell_B_cal_data.txt'))
+cal_B_df = pd.read_csv(os.path.join(data_dir, 'sig_B_cal_data.txt'))
 
 cal_B_df['cal_start_date_time'] = pd.to_datetime(cal_B_df['cal_start_date_time'])
-cal_B_df = cal_B_df[(cal_B_df['cell_B_slope_ref_norm'] > 1)
-                     & (cal_B_df['cell_B_slope_ref_norm'] < 2.8)
+cal_B_df = cal_B_df[(cal_B_df['slope_ref_norm'] > 1)
+                     & (cal_B_df['slope_ref_norm'] < 2.8)
                      ]
 
 split_time = pd.to_datetime('2025/06/14 12:00:00')
@@ -92,29 +93,29 @@ cal_A_df_2 = cal_A_df[cal_A_mask_2]
 cal_B_df_1 = cal_B_df[cal_B_mask_1]
 cal_B_df_2 = cal_B_df[cal_B_mask_2]
 
-cell_A_cal_factor_1 = cal_A_df_1['cell_A_slope_ref_norm'].mean()
-cell_A_cal_factor_2 = cal_A_df_2['cell_A_slope_ref_norm'].mean()
-cell_B_cal_factor_1 = cal_B_df_1['cell_B_slope_ref_norm'].mean()
-cell_B_cal_factor_2 = cal_B_df_2['cell_B_slope_ref_norm'].mean()
+cell_A_cal_factor_1 = cal_A_df_1['slope_ref_norm'].mean()
+cell_A_cal_factor_2 = cal_A_df_2['slope_ref_norm'].mean()
+cell_B_cal_factor_1 = cal_B_df_1['slope_ref_norm'].mean()
+cell_B_cal_factor_2 = cal_B_df_2['slope_ref_norm'].mean()
 
 
-cts_data_MRs['cell_A_cal_factor'] = cell_A_cal_factor_1
-cts_data_MRs['cell_A_cal_factor'] = np.where(
+cts_data_MRs['sig_A_cal_factor'] = cell_A_cal_factor_1
+cts_data_MRs['sig_A_cal_factor'] = np.where(
     cts_data_MRs['Date_time'] >= split_time
     , cell_A_cal_factor_2
-    , cts_data_MRs['cell_A_cal_factor']
+    , cts_data_MRs['sig_A_cal_factor']
     )
 
-cts_data_MRs['cell_B_cal_factor'] = cell_B_cal_factor_1
-cts_data_MRs['cell_B_cal_factor'] = np.where(
+cts_data_MRs['sig_B_cal_factor'] = cell_B_cal_factor_1
+cts_data_MRs['sig_B_cal_factor'] = np.where(
     cts_data_MRs['Date_time'] >= split_time
     , cell_B_cal_factor_2
-    , cts_data_MRs['cell_B_cal_factor']
+    , cts_data_MRs['sig_B_cal_factor']
     )
 
 cts_data_MRs['amb_NO_ppt'] = np.where(
     (cts_data_MRs['Task'] == 0) & (cts_data_MRs['Peak_find_flag'] == 0)
-    , cts_data_MRs['sig_A_diff_cts_ref_norm_zero_corr'] / cts_data_MRs['cell_A_cal_factor']
+    , cts_data_MRs['sig_A_diff_cts_ref_norm_zero_corr'] / cts_data_MRs['sig_A_cal_factor']
     , np.nan
     )
 
@@ -127,7 +128,7 @@ cts_data_MRs['amb_NO_ppt'] = np.where(
 
 cts_data_MRs['amb_NOx_ppt'] = np.where(
     (cts_data_MRs['Task'] == 0) & (cts_data_MRs['Peak_find_flag'] == 0)
-    , cts_data_MRs['sig_B_diff_cts_ref_norm_zero_corr'] / cts_data_MRs['cell_B_cal_factor']
+    , cts_data_MRs['sig_B_diff_cts_ref_norm_zero_corr'] / cts_data_MRs['sig_B_cal_factor']
     , np.nan
     )
 
@@ -177,15 +178,15 @@ plt.show()
 
 
 fig, ax = plt.subplots(figsize=(10,6))
-ax.plot(cal_A_df['avg_lsr_pwr'],cal_A_df['cell_A_slope_ref_norm'], marker='o', linestyle=' ', label='cell A')
-ax.plot(cal_B_df['avg_lsr_pwr'],cal_B_df['cell_B_slope_ref_norm'], marker='o', linestyle=' ', label='cell B')
+ax.plot(cal_A_df['avg_lsr_pwr'],cal_A_df['slope_ref_norm'], marker='o', linestyle=' ', label='cell A')
+ax.plot(cal_B_df['avg_lsr_pwr'],cal_B_df['slope_ref_norm'], marker='o', linestyle=' ', label='cell B')
 ax.set_xlabel('average laser power during cal period')
 ax.set_ylabel('calibration factor')
 plt.legend()
 plt.show()
 
 fig, ax = plt.subplots(figsize=(10,6))
-ax.plot(cal_A_df['cal_start_date_time'],cal_A_df['cell_A_slope_ref_norm'], marker='o', linestyle=' ', label='cell A')
+ax.plot(cal_A_df['cal_start_date_time'],cal_A_df['slope_ref_norm'], marker='o', linestyle=' ', label='cell A')
 #ax.plot(cal_B_df['cal_start_date_time'],cal_B_df['cell_B_slope_ref_norm'], marker='o', linestyle=' ', label='cell B')
 ax.hlines(y=cell_A_cal_factor_1, xmin=min_time, xmax=split_time)
 ax.hlines(y=cell_A_cal_factor_2, xmin=split_time, xmax=max_time)
@@ -195,7 +196,7 @@ plt.legend()
 plt.show()
 
 fig, ax = plt.subplots(figsize=(10,6))
-ax.hist(cal_B_df_2['cell_B_slope_ref_norm'], bins=8)
+ax.hist(cal_B_df_2['slope_ref_norm'], bins=8)
 plt.title('cell B period 2')
 plt.show()
 

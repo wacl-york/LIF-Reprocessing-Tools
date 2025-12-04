@@ -8,8 +8,6 @@ import numpy as np
 import pandas as pd
 
 from itertools import islice
-from scipy import stats
-from scipy.interpolate import interp1d
 from sklearn.linear_model import LinearRegression
 
 from datetime import datetime as dt
@@ -688,6 +686,11 @@ def gen_output_data(file, channel_format, data_dir, bin_data_dict, HK_data, HK_h
     None
         Data is written directly to the processed_file (side effect).
     """
+    if data_freq == 10:
+        seed_LD_mode = bin_data_dict['seed_LD_mode']
+        if 5 not in seed_LD_mode and 6 not in seed_LD_mode:
+            print('No periods of laser dither detected, no 10Hz data processed')
+            return
     processing_variables = pd.read_csv(os.path.join(
         data_dir, 'processing_variables.txt')
         )
@@ -1352,11 +1355,11 @@ def set_flags(data, pre_TS, post_TS, pre_PF, post_PF, ref_cts_limit):
     
     return data
 
-def zero_correct_average(cts_data, channels, plot=False):
+def zero_correct_average(data, channels, plot=False):
     
     # use a mask to select all of the zero data associated with task 4
     # set the index to Date_time for averaging later
-    cts_data_zero = cts_data.copy()
+    cts_data_zero = data.copy()
     start_of_zero = (cts_data_zero['Task'] == 4) & (cts_data_zero['Task'].shift(1) != 4)
     cts_data_zero['zero_number'] = start_of_zero.cumsum()
     cts_data_zero = cts_data_zero[(cts_data_zero['Task']==4) & (cts_data_zero['Peak_find_flag']==0)]
@@ -1401,10 +1404,10 @@ def zero_correct_average(cts_data, channels, plot=False):
               f'\nmean zero after spike removal = {mean_zero_spikes_removed}')
         
         mean_correction = mean_zero_spikes_removed # The overall mean after spike removal
-        correction_values = np.full(len(cts_data), mean_correction)
+        correction_values = np.full(len(data), mean_correction)
         
-        cts_data[f'{channel}_zero_offset'] = correction_values
-        cts_data[f'{channel}_diff_cts_ref_norm_zero_corr'] = cts_data[column_name] - correction_values
+        data[f'{channel}_zero_offset'] = correction_values
+        data[f'{channel}_diff_cts_ref_norm_zero_corr'] = data[column_name] - correction_values
         print(f'zero correction applied to {channel}')
         
         if plot:
@@ -1421,7 +1424,7 @@ def zero_correct_average(cts_data, channels, plot=False):
                              , label='zero measurement means, +/- 1std'
                              )
             #ax.plot(cts_data_zero['Date_time'], cts_data_zero[column_name], label='raw zero data')
-            ax[0].plot(cts_data['Date_time'], cts_data[f'{channel}_zero_offset'], label='zero correction')
+            ax[0].plot(data['Date_time'], data[f'{channel}_zero_offset'], label='zero correction')
             ax[0].set_xlabel('Date_time')
             ax[0].set_ylabel(column_name)
             ax[0].set_title(f'{channel} zero correction')
@@ -1432,9 +1435,9 @@ def zero_correct_average(cts_data, channels, plot=False):
             
             plt.show()
 
-    return cts_data
+    return data
     
-def analyse_cals(all_data, plot, max_conc, cell, path, molecule):
+def analyse_cals(data, plot, max_conc, channels, data_dir, molecule):
     """
     Analyzes calibration data for a specified cell by identifying
     individual calibration events, applying data cleaning, and performing
@@ -1479,201 +1482,200 @@ def analyse_cals(all_data, plot, max_conc, cell, path, molecule):
     - Regression is performed on data points starting at index 300 of the 
       filtered calibration period to ensure steady-state conditions.
     """
+    for channel in channels:
     
-    file_path = os.path.join(path, f'cell_{cell}_cal_data.txt')
+        file_path = os.path.join(data_dir, f'{channel}_cal_data.txt')
+        
+        if not os.path.exists(file_path):
+            with open(file_path, 'w', newline='') as txtfile:
+                    fieldnames = ['cal_start_date_time', 'avg_lsr_pwr', 'R2'
+                                  , 'slope', 'intercept', 'R2_ref_norm'
+                                  , 'slope_ref_norm', 'intercept_ref_norm']
+                    header_row = ','.join(fieldnames)
+                    txtfile.write(header_row + '\n')    
+        
+        print(f'\nidentifying cals, {channel}')
+        
+        cts_diff_v = f'{channel}_diff_cts'
+        cts_diff_refnorm_v = f'{channel}_diff_cts_ref_norm'
+        data = data[[cts_diff_v, cts_diff_refnorm_v, f'{molecule}_mr', 'Task'
+                         , f'Cal_{molecule}_MFC_Read', 'Cal_SB_MFC_Read', f'Cal_{molecule}_MFC_set'
+                         , 'Date_time', 'lsr_pwr_mW']].copy()
+        data.replace([np.inf, -np.inf], np.nan, inplace=True)
+        data = data.reset_index(drop=True)
+        data['cal_sig_diff_cts_ref_norm'] = data[cts_diff_refnorm_v].where(
+            data['Task'] == 5
+            )
+        data['cal_true_ppt'] = data['NO_mr'].where(
+            (data.Task == 5) & (data['Cal_SB_MFC_Read'] < 0.01)
+            )
+        data['cal_group'] = np.nan
+        data['cal_start_time'] = pd.NaT
+        cal_num = 0
+        cal_group_start_times = {}
+        tot_steps = len(data.index) - 1
     
-    if not os.path.exists(file_path):
-        with open(file_path, 'w', newline='') as txtfile:
-                fieldnames = ['cal_start_date_time', 'avg_lsr_pwr', f'cell_{cell}_R2'
-                              , f'cell_{cell}_slope', f'cell_{cell}_intercept', f'cell_{cell}_R2_ref_norm'
-                              , f'cell_{cell}_slope_ref_norm', f'cell_{cell}_intercept_ref_norm']
-                header_row = ','.join(fieldnames)
-                txtfile.write(header_row + '\n')    
-    
-    print(f'\nidentifying cals, cell {cell}')
-    
-    cts_diff_v = f'sig_{cell}_diff_cts'
-    cts_diff_refnorm_v = f'sig_{cell}_diff_cts_ref_norm'
-    data = all_data[[cts_diff_v, cts_diff_refnorm_v, f'{molecule}_mr', 'Task'
-                     , f'Cal_{molecule}_MFC_Read', 'Cal_SB_MFC_Read', f'Cal_{molecule}_MFC_set'
-                     , 'Date_time', 'lsr_pwr_mW']].copy()
-    data.replace([np.inf, -np.inf], np.nan, inplace=True)
-    data = data.reset_index(drop=True)
-    data['cal_sig_diff_cts_ref_norm'] = data[cts_diff_refnorm_v].where(
-        data['Task'] == 5
-        )
-    data['cal_true_ppt'] = data['NO_mr'].where(
-        (data.Task == 5) & (data['Cal_SB_MFC_Read'] < 0.01)
-        )
-    data['cal_group'] = np.nan
-    data['cal_start_time'] = pd.NaT
-    cal_num = 0
-    cal_group_start_times = {}
-    tot_steps = len(data.index) - 1
-
-    
-    for i in data.index:
         
-        if i % 1000 == 0:
-            print('\r%.2f' % (abs(1 - (tot_steps - i) / tot_steps) * 100)
-                  , end='')
-        
-        if (i > 0 and pd.notnull(data['cal_true_ppt'][i]) 
-            and pd.isnull(data['cal_true_ppt'][max(0, i-3000):i].mean())):
-            cal_num += 1
-            cal_group_start_times[cal_num] = data.loc[i, 'Date_time']
-            data.loc[i, 'cal_start_time'] = data.loc[i, 'Date_time']
-        if (pd.notnull(data['cal_true_ppt'][i]) 
-            and pd.notnull(data['cal_true_ppt'][max(0, i-3001):max(0, i-100)].mean())):
-            data.loc[i, 'cal_group'] = cal_num
-     
-        
-
-    backward_mean = data['cal_true_ppt'].rolling(window=200).mean().shift(1)
-    backward_std = data['cal_true_ppt'].rolling(window=200).std().shift(1)
-    forward_mean = data['cal_true_ppt'][::-1].rolling(window=200).mean()[::-1]
-    mask = (forward_mean > backward_mean + backward_std/2) | \
-       (forward_mean < backward_mean - backward_std/2)
-    data.loc[mask, 'cal_true_ppt'] = np.nan
-
-    print('\nnumber of cals =', cal_num )
-
-    Refnorm_cal_vars = {}
-    std_cal_vars = {}
-    fig, axs = None, None
-
-    if plot:
-        fig, axs = plt.subplots(4, cal_num, figsize=(6 * cal_num, 12))
-
-    for cal in range(1,cal_num+1):
-        
-        print(f'\ranalysing cal {cal}', end='')
-        
-        current_cal_start_time = cal_group_start_times.get(cal, None)
-        
-        cal_tmp_df = data[(data['cal_group'] == cal)].copy().dropna(
-           subset=[cts_diff_v, cts_diff_refnorm_v, 'NO_mr', 'cal_true_ppt'
-                   , 'Cal_NO_MFC_set', 'lsr_pwr_mW']
-        )
-        
-        avg_lsr_pwr = cal_tmp_df['lsr_pwr_mW'].mean()
-        
-        cal_tmp_df['point_filter'] = 0
-        cal_tmp_df['cal_flow_diff'] = cal_tmp_df['Cal_NO_MFC_set'].diff().abs()
-        for cal_pt in cal_tmp_df.index:
-            if (cal_tmp_df['cal_flow_diff'][cal_pt] > 0.05):
-                cal_tmp_df.loc[cal_pt-1:cal_pt+10,'point_filter'] = 1
-        cal_tmp_df = cal_tmp_df[(cal_tmp_df['point_filter'] == 0) 
-                                & (cal_tmp_df['cal_true_ppt'] < max_conc)]
-        if cal_tmp_df.shape[0] > 100:
-            X = cal_tmp_df['cal_true_ppt'][300:].values.reshape(-1, 1)
-            Y = cal_tmp_df['cal_sig_diff_cts_ref_norm'][300:].values.reshape(-1, 1)
-            linear_regressor = LinearRegression()
-            reg = linear_regressor.fit(X, Y)
-            Y_pred = linear_regressor.predict(X)
-            Norm_cal_dict = {}
-            Norm_cal_dict['cal_start_date_time'] = current_cal_start_time
-            Norm_cal_dict['avg_lsr_pwr'] = avg_lsr_pwr
-            Norm_cal_dict['R2'] = reg.score(X,Y)
-            Norm_cal_dict['Slope'] = reg.coef_[0,0]
-            Norm_cal_dict['Intercept'] = reg.intercept_[0]
-            Refnorm_cal_vars[cal] =  Norm_cal_dict
+        for i in data.index:
             
-            Y2 = cal_tmp_df[cts_diff_v][300:].values.reshape(-1, 1)
-            linear_regressor = LinearRegression()
-            reg2 = linear_regressor.fit(X, Y2)
-            Y2_pred = linear_regressor.predict(X)
-            cal_dict = {}
-            cal_dict['cal_start_date_time'] = current_cal_start_time
-            cal_dict['avg_lsr_pwr'] = avg_lsr_pwr
-            cal_dict['R2'] = reg2.score(X,Y2)
-            cal_dict['Slope'] = reg2.coef_[0,0]
-            cal_dict['Intercept'] = reg2.intercept_[0]
-            std_cal_vars[cal] = cal_dict
+            if i % 1000 == 0:
+                print('\r%.2f' % (abs(1 - (tot_steps - i) / tot_steps) * 100)
+                      , end='')
             
+            if (i > 0 and pd.notnull(data['cal_true_ppt'][i]) 
+                and pd.isnull(data['cal_true_ppt'][max(0, i-3000):i].mean())):
+                cal_num += 1
+                cal_group_start_times[cal_num] = data.loc[i, 'Date_time']
+                data.loc[i, 'cal_start_time'] = data.loc[i, 'Date_time']
+            if (pd.notnull(data['cal_true_ppt'][i]) 
+                and pd.notnull(data['cal_true_ppt'][max(0, i-3001):max(0, i-100)].mean())):
+                data.loc[i, 'cal_group'] = cal_num
+         
             
-            # cal_data = pd.DataFrame({'X':cal_tmp_df['Cal_true_ppt'][30:], 'Y':cal_tmp_df['Cal_Sig_diff_cts_ref_norm'][30:]})
-            # cal_data.to_csv('Cell_'+cell+'_Cal_data_'+str(cal)+'.csv')
-        if cal in Refnorm_cal_vars and cal in std_cal_vars:
+    
+        backward_mean = data['cal_true_ppt'].rolling(window=200).mean().shift(1)
+        backward_std = data['cal_true_ppt'].rolling(window=200).std().shift(1)
+        forward_mean = data['cal_true_ppt'][::-1].rolling(window=200).mean()[::-1]
+        mask = (forward_mean > backward_mean + backward_std/2) | \
+           (forward_mean < backward_mean - backward_std/2)
+        data.loc[mask, 'cal_true_ppt'] = np.nan
+    
+        print('\nnumber of cals =', cal_num )
+    
+        Refnorm_cal_vars = {}
+        std_cal_vars = {}
+        fig, axs = None, None
+    
+        if plot:
+            fig, axs = plt.subplots(4, cal_num, figsize=(6 * cal_num, 12))
+    
+        for cal in range(1,cal_num+1):
             
-            if current_cal_start_time is not None:
+            print(f'\ranalysing cal {cal}', end='')
+            
+            current_cal_start_time = cal_group_start_times.get(cal, None)
+            
+            cal_tmp_df = data[(data['cal_group'] == cal)].copy().dropna(
+               subset=[cts_diff_v, cts_diff_refnorm_v, 'NO_mr', 'cal_true_ppt'
+                       , 'Cal_NO_MFC_set', 'lsr_pwr_mW']
+            )
+            
+            avg_lsr_pwr = cal_tmp_df['lsr_pwr_mW'].mean()
+            
+            cal_tmp_df['point_filter'] = 0
+            cal_tmp_df['cal_flow_diff'] = cal_tmp_df['Cal_NO_MFC_set'].diff().abs()
+            for cal_pt in cal_tmp_df.index:
+                if (cal_tmp_df['cal_flow_diff'][cal_pt] > 0.05):
+                    cal_tmp_df.loc[cal_pt-1:cal_pt+10,'point_filter'] = 1
+            cal_tmp_df = cal_tmp_df[(cal_tmp_df['point_filter'] == 0) 
+                                    & (cal_tmp_df['cal_true_ppt'] < max_conc)]
+            if cal_tmp_df.shape[0] > 100:
+                X = cal_tmp_df['cal_true_ppt'][300:].values.reshape(-1, 1)
+                Y = cal_tmp_df['cal_sig_diff_cts_ref_norm'][300:].values.reshape(-1, 1)
+                linear_regressor = LinearRegression()
+                reg = linear_regressor.fit(X, Y)
+                Y_pred = linear_regressor.predict(X)
+                Norm_cal_dict = {}
+                Norm_cal_dict['cal_start_date_time'] = current_cal_start_time
+                Norm_cal_dict['avg_lsr_pwr'] = avg_lsr_pwr
+                Norm_cal_dict['R2'] = reg.score(X,Y)
+                Norm_cal_dict['Slope'] = reg.coef_[0,0]
+                Norm_cal_dict['Intercept'] = reg.intercept_[0]
+                Refnorm_cal_vars[cal] =  Norm_cal_dict
                 
-                new_data_to_append = {
-                    'cal_start_date_time': 
-                        [current_cal_start_time],
-                    'avg_lsr_pwr':
-                        [avg_lsr_pwr],
-                    f'cell_{cell}_R2': 
-                        [std_cal_vars[cal]['R2']],
-                    f'cell_{cell}_slope': 
-                        [std_cal_vars[cal]['Slope']],
-                    f'cell_{cell}_intercept': 
-                        [std_cal_vars[cal]['Intercept']],
-                    f'cell_{cell}_R2_ref_norm': 
-                        [Refnorm_cal_vars[cal]['R2']],
-                    f'cell_{cell}_slope_ref_norm': 
-                        [Refnorm_cal_vars[cal]['Slope']],
-                    f'cell_{cell}_intercept_ref_norm': 
-                        [Refnorm_cal_vars[cal]['Intercept']]
-                }
+                Y2 = cal_tmp_df[cts_diff_v][300:].values.reshape(-1, 1)
+                linear_regressor = LinearRegression()
+                reg2 = linear_regressor.fit(X, Y2)
+                Y2_pred = linear_regressor.predict(X)
+                cal_dict = {}
+                cal_dict['cal_start_date_time'] = current_cal_start_time
+                cal_dict['avg_lsr_pwr'] = avg_lsr_pwr
+                cal_dict['R2'] = reg2.score(X,Y2)
+                cal_dict['Slope'] = reg2.coef_[0,0]
+                cal_dict['Intercept'] = reg2.intercept_[0]
+                std_cal_vars[cal] = cal_dict
                 
-            new_data_to_append_df = pd.DataFrame(new_data_to_append)
-            
-            new_data_to_append_df.to_csv(
-                file_path, mode='a', header=False
-                , index=False, sep=','
-                )
-            
-            
-            if plot:
-
-                # --- First Plot ---
-                # Plot on the first subplot (axs[0])
-                axs[0, cal-1].plot(cal_tmp_df.index, cal_tmp_df[cts_diff_v])
-                axs[0, cal-1].set_title(f'Standard cal {cal} Cell {cell}')
-
-                # --- Second Plot ---
-                # Plot on the second subplot (axs[1])
-                axs[1,cal-1].scatter(X, Y2)
-                axs[1,cal-1].plot(X, Y2_pred, color='red')
-                axs[1,cal-1].set_title(f'Standard cal {cal} Cell {cell}')
-    
-                # --- Third Plot ---
-                # Plot on the third subplot (axs[2])
-                axs[2,cal-1].plot(
-                    cal_tmp_df.index, cal_tmp_df['cal_sig_diff_cts_ref_norm']
+                
+                # cal_data = pd.DataFrame({'X':cal_tmp_df['Cal_true_ppt'][30:], 'Y':cal_tmp_df['Cal_Sig_diff_cts_ref_norm'][30:]})
+                # cal_data.to_csv('Cell_'+cell+'_Cal_data_'+str(cal)+'.csv')
+            if cal in Refnorm_cal_vars and cal in std_cal_vars:
+                
+                if current_cal_start_time is not None:
+                    
+                    new_data_to_append = {
+                        'cal_start_date_time': 
+                            [current_cal_start_time],
+                        'avg_lsr_pwr':
+                            [avg_lsr_pwr],
+                        'R2': 
+                            [std_cal_vars[cal]['R2']],
+                        'slope': 
+                            [std_cal_vars[cal]['Slope']],
+                        'intercept': 
+                            [std_cal_vars[cal]['Intercept']],
+                        'R2_ref_norm': 
+                            [Refnorm_cal_vars[cal]['R2']],
+                        'slope_ref_norm': 
+                            [Refnorm_cal_vars[cal]['Slope']],
+                        'intercept_ref_norm': 
+                            [Refnorm_cal_vars[cal]['Intercept']]
+                    }
+                    
+                new_data_to_append_df = pd.DataFrame(new_data_to_append)
+                
+                new_data_to_append_df.to_csv(
+                    file_path, mode='a', header=False
+                    , index=False, sep=','
                     )
-                axs[2,cal-1].set_title(f'Ref norm cal {cal} Cell {cell}')
-
-                # --- Fourth Plot ---
-                # Plot on the fourth subplot (axs[3])
-                axs[3,cal-1].scatter(X, Y)
-                axs[3,cal-1].plot(X, Y_pred, color='red')
-                axs[3,cal-1].set_title(f'Ref norm cal {cal} Cell {cell}')
+                
+                
+                if plot:
     
-    # Display the combined figure
-    if plot:
-        plt.tight_layout()
-        plt.show()
+                    # --- First Plot ---
+                    # Plot on the first subplot (axs[0])
+                    axs[0, cal-1].plot(cal_tmp_df.index, cal_tmp_df[cts_diff_v])
+                    axs[0, cal-1].set_title(f'Standard cal {cal} {channel}')
     
-    Std_cal_summary = pd.DataFrame(std_cal_vars).transpose()
-    print(f'Cell {cell} Non ref normalised cals')
-    print(Std_cal_summary)
-    if (100*(Std_cal_summary['Slope'].std()/Std_cal_summary['Slope'].mean())) < 5:
-        print(f'Cell {cell} Cal slope standard deviation < 5% of mean')
-    else:
-        print(f'Cell {cell} Cal slope standard deviation greater than 5% of mean')
-
-    Refnorm_cal_summary = pd.DataFrame(Refnorm_cal_vars).transpose()
-    print(f'Cell {cell} Reference cell normalised cals')
-    print(Refnorm_cal_summary)
-    if (100*(Refnorm_cal_summary['Slope'].std()/Refnorm_cal_summary['Slope'].mean())) < 5:
-        print(f'Cell {cell} Ref norm cal slope standard deviation < 5% of mean')
-    else:
-        print(f'Cell {cell} Ref norm cal slope standard deviation greater than 5% of mean')    
+                    # --- Second Plot ---
+                    # Plot on the second subplot (axs[1])
+                    axs[1,cal-1].scatter(X, Y2)
+                    axs[1,cal-1].plot(X, Y2_pred, color='red')
+                    axs[1,cal-1].set_title(f'Standard cal {cal} {channel}')
+        
+                    # --- Third Plot ---
+                    # Plot on the third subplot (axs[2])
+                    axs[2,cal-1].plot(
+                        cal_tmp_df.index, cal_tmp_df['cal_sig_diff_cts_ref_norm']
+                        )
+                    axs[2,cal-1].set_title(f'Ref norm cal {cal} {channel}')
     
-    return(Std_cal_summary, Refnorm_cal_summary)
-
+                    # --- Fourth Plot ---
+                    # Plot on the fourth subplot (axs[3])
+                    axs[3,cal-1].scatter(X, Y)
+                    axs[3,cal-1].plot(X, Y_pred, color='red')
+                    axs[3,cal-1].set_title(f'Ref norm cal {cal} {channel}')
+        
+        # Display the combined figure
+        if plot:
+            plt.tight_layout()
+            plt.show()
+        
+        Std_cal_summary = pd.DataFrame(std_cal_vars).transpose()
+        print(f'{channel} Non ref normalised cals')
+        print(Std_cal_summary)
+        if (100*(Std_cal_summary['Slope'].std()/Std_cal_summary['Slope'].mean())) < 5:
+            print(f'{channel} Cal slope standard deviation < 5% of mean')
+        else:
+            print(f'{channel} Cal slope standard deviation greater than 5% of mean')
+    
+        Refnorm_cal_summary = pd.DataFrame(Refnorm_cal_vars).transpose()
+        print(f'{channel} Reference cell normalised cals')
+        print(Refnorm_cal_summary)
+        if (100*(Refnorm_cal_summary['Slope'].std()/Refnorm_cal_summary['Slope'].mean())) < 5:
+            print(f'{channel} Ref norm cal slope standard deviation < 5% of mean')
+        else:
+            print(f'{channel} Ref norm cal slope standard deviation greater than 5% of mean')    
+        
 def analyse_BLC_cals(all_data, data_dir, plot): 
     
     
