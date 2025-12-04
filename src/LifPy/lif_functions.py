@@ -60,14 +60,75 @@ def find_min_ind(target, array, start=0, end='full'):
     return diff_arr.index(np.min(diff_arr))
 
 def find_day_folders(data_dir):
+    """
+    Identifies subdirectories within a given path that appear to be date 
+    folders.
+    
+    A folder is considered a 'day folder' if its name matches the YYYYMMDD
+    format, specifically starting with '20' for the year (e.g., 20240115).
+    
+    Parameters
+    ----------
+    data_dir : str
+        The path to the main directory to search within.
+    
+    Returns
+    -------
+    list of str
+        A list of strings, where each string is the name of a subdirectory
+        that matches the YYYYMMDD date format.
+    """
     
     campaign_subdirs = os.listdir(data_dir)
     day_folders = [folder for folder in campaign_subdirs 
-                    if re.match("20[0-9]{2}[0-1][0-9][0-3][0-9]", folder) is not None]
+                    if re.match("20[0-9]{2}[0-1][0-9][0-3][0-9]", folder) 
+                    is not None]
     
     return day_folders
 
 def gen_processing_var(data_dir, day_folders, channel_format, channel_count):
+    """
+    Generates and saves two metadata files, 'processing_variables.txt' and
+    'soft_restarts.txt', which link binary count files (LIFCnts) to their
+    corresponding log files (LIFLog) and identify specific system restart 
+    events.
+    
+    This function performs the following main steps:
+    1.  **Collects Metadata:** Iterates through 'day folders' to find all LIFLog
+        and LIFCnts files, extracting log start times, binary file sizes, and
+        creating initial records.
+    2.  **Analyzes Restarts:** Determines if a binary file is likely a restart
+        file based on the size of the *previous* file being non-full (less than
+        19.07 MB).
+    3.  **Identifies Time Resets (Hard Restarts):** For restart files, it loads
+        the binary data and checks if the initial timestamp ('time_ms') is small
+        (less than 10,000 ms), indicating a time counter reset (hard restart).
+    4.  **Generates Indices:** Creates cumulative indices to group files between
+        hard and soft restarts.
+    5.  **Merges Data:** Combines the binary file metadata with the log file
+        metadata, excluding log files that correspond only to 'soft restarts'
+        (where the time counter did *not* reset).
+    6.  **Saves Output:** Writes the final linked processing variables and the
+        soft restart records to separate CSV files in the main data directory.
+    
+    Parameters
+    ----------
+    data_dir : str
+        The root directory containing the daily data folders.
+    day_folders : list of str
+        A list of subdirectories (day folders, e.g., '20240115') to process.
+    channel_format : str
+        A string defining the data format of the binary channels.
+    channel_count : int
+        The expected number of data channels in the binary files.
+    
+    Returns
+    -------
+    None
+        The function does not return a value but writes two files to disk:
+        'processing_variables.txt' and 'soft_restarts.txt'.
+        It also prints diagnostic information to the console.
+    """
     
     print('Generating Processing Variables')
     
@@ -163,37 +224,36 @@ def gen_processing_var(data_dir, day_folders, channel_format, channel_count):
     
 def import_HK_data(data_dir, day_folders):
     """
-    Imports and concatenates data from multiple Housekeeping (HK) files in a 
-    specified directory.
-
-    The function reads all files in the directory, skips a specified number 
-    of files at the beginning and end of the list, and aggregates all columns 
-    into a single dictionary where keys are the column headers. Files are 
-    assumed to be space-delimited (.csv or .txt) with a header row.
-
+    Imports and concatenates Housekeeping (HK) data from all files across 
+    multiple specified 'day folders'.
+    
+    The function iterates through each day folder, finds the LIFHK_{day} 
+    subdirectory,reads all files starting with 'LIFHK' inside it, and 
+    aggregates the data.
+    All column data across all files is collected into a single list of arrays
+    for each unique header, and then concatenated into a single NumPy array per
+    header before returning.
+    
     Parameters
     ----------
-    HK_file_path : str
-        The path to the directory containing the HK data files.
-    skip_start : int, optional
-        The number of files to skip from the beginning of the file list. 
-        Default is 0.
-    skip_end : int, optional
-        The number of files to skip from the end of the file list. 
-        Default is 0.
-
+    data_dir : str
+        The path to the root directory containing the daily data subdirectories.
+    day_folders : list of str
+        A list of subdirectory names (e.g., '20240115') to search for HK data.
+    
     Returns
     -------
     dict
-        A dictionary where keys are the column headers from the input files, 
-        and values are 1D NumPy arrays containing the concatenated data 
-        from all selected files for that column.
-
+        A dictionary where keys are the column headers (from the input files),
+        and values are 1D NumPy arrays containing the concatenated data
+        from all processed files for that column.
+    
     Notes
     -----
-    The function prints the name of each file being processed.
-    It uses a try-except block to initialize the NumPy array for a new header 
-    the first time it is encountered.
+    - The function assumes HK files are space-delimited and contain a header row.
+    - A warning is printed if an expected HK directory is not found for a day.
+    - Data for each header is collected in a list of NumPy arrays and then
+      concatenated once using 'np.concatenate' for efficiency.
     """
     
     print('\nreading HK files:\n')
@@ -208,7 +268,8 @@ def import_HK_data(data_dir, day_folders):
             print(f"Warning: Directory not found for day {day}: {HK_dir}")
             continue
         
-        file_list.extend(file_name for file_name in os.listdir(HK_dir) if file_name.startswith('LIFHK'))
+        file_list.extend(file_name for file_name in os.listdir(HK_dir) 
+                         if file_name.startswith('LIFHK'))
 
         if not file_list:
             continue
@@ -250,9 +311,9 @@ def gen_bin_file_list(bin_file_path, skip_start_bin, skip_end_bin):
     ----------
     bin_file_path : str
         The path to the directory containing the files.
-    skip_start : int
+    skip_start_bin : int
         The number of files to skip (discard) from the beginning of the list.
-    skip_end : int
+    skip_end_bin : int
         The number of files to skip (discard) from the end of the list.
 
     Returns
@@ -377,7 +438,8 @@ def import_bin_data(data_dir, date, file):
     - '2' : 2 bytes (16 bits) in size.
     """
     
-    bin_data = np.fromfile(os.path.join(data_dir, date, f'LIFCnts_{date}', file), dtype='>i2') 
+    bin_data = np.fromfile(os.path.join(data_dir, date, f'LIFCnts_{date}', file)
+                           , dtype='>i2') 
     
     return bin_data
 
@@ -483,40 +545,54 @@ def deinterleave_bin_data(bin_data, channel_format, channel_count,
 def gen_output_file(data_dir, data_freq, file, channel_format, HK_headers_dict
                     , HK_data, date, bin_data_dict):
    """
-    Creates and initializes the output text file, writes metadata and all 
-    headers, and generates a NaN placeholder string for non-data periods.
-
-    The function determines the next available file index, opens the new file, 
-    writes standard metadata, generates the full combined header string 
-    (General, Signal Counts, and validated Housekeeping headers), and then 
-    writes the headers to the file.
-
+    Creates and initializes a new output text file for processed data, writes
+    metadata, and generates the full data header row and a placeholder string
+    for non-data periods.
+    
+    The function determines the next available file index for the current day,
+    creates the output directory if necessary, opens the new file, writes a
+    standard metadata block (including a timestamp), and then generates and
+    writes the full combined header string based on the processing frequency.
+    
     Parameters
     ----------
-    working_dir : str
-        The root directory of the project, used to locate the output folder 
-        and the 'lif_metadata.txt' template file.
+    data_dir : str
+        The root directory of the project, used to construct the output folder 
+        path.
+    data_freq : int
+        The data processing frequency (10 or 100 Hz), which dictates the
+        structure and content of the output headers.
     file : str
-        The name of the current binary input file (used for naming the output 
+        The name of the current binary input file (used for naming the output
         file).
     channel_format : dict
-        A dictionary defining the data channels, used to generate headers for 
-        signal counts, linearized, and normalized channels.
+        A dictionary defining the raw data channels, used to generate headers
+        for Signal Counts and other processed channels (10 Hz mode).
     HK_headers_dict : dict
-        A dictionary of desired Housekeeping headers. This dictionary is 
-        checked against HK_data and modified in-place to remove non-existent 
+        A dictionary of desired Housekeeping headers. This dictionary is
+        checked against HK_data and modified in-place to remove non-existent
         headers.
     HK_data : dict
-        The dictionary containing all Housekeeping data (used to validate that 
+        The dictionary containing all Housekeeping data (used to validate that
         requested headers in HK_headers_dict actually exist).
-
+    date : str
+        The current day in YYYYMMDD format, used for naming the output 
+        directory and file.
+    bin_data_dict : dict
+        The dictionary containing 100 Hz binary data channels. Used in 100 Hz
+        mode to dynamically generate the list of binary data headers.
+    
     Returns
     -------
-    str
-        A comma-separated string (nan_data) of placeholder values (-9999) 
-        matching the width of the data columns defined by all_headers, used 
-        to fill periods of missing or invalid data.
-
+    tuple
+        (processed_file, nan_data)
+        processed_file : file object
+            The open file handle for the initialized output text file.
+        nan_data : str
+            A comma-separated string of placeholder values (-9999) matching the
+            width of all data columns (excluding the first column, which is
+            assumed to be the time column), used to fill periods of missing or
+            invalid data.
     """
    
    output_dir = os.path.join(data_dir, date, f'LIFProcessed_{date}')
@@ -549,7 +625,8 @@ def gen_output_file(data_dir, data_freq, file, channel_format, HK_headers_dict
                    ',ref_off_cts_norm,ref_diff_cts_norm'
                    )
                            
-       cts_labels = [name.split('_')[0] + ('_' + name.split('_')[1] if len(name.split('_')) > 2 else '')
+       cts_labels = [name.split('_')[0] + ('_' + name.split('_')[1] 
+                                           if len(name.split('_')) > 2 else '')
                      for name in list(channel_format)
                      if '_counts' in name and not name.startswith('ref_')
                      ]
@@ -643,10 +720,9 @@ def align_bin_HK(bin_data_dict, log_start_datetime_seconds, HK_data):
         
     return bin_time_arr, HK_start_ind, HK_end_ind 
     
-def gen_output_data(file, channel_format, data_dir, bin_data_dict, HK_data, HK_headers_dict, 
-                    data_freq, bin_time_arr, HK_start_ind, HK_end_ind, 
-                    nan_data, processed_file
-                    , histograms):
+def gen_output_data(file, channel_format, data_dir, bin_data_dict, HK_data 
+                    , HK_headers_dict, data_freq, bin_time_arr, HK_start_ind
+                    , HK_end_ind, nan_data, processed_file, histograms):
     """
     Processes, averages, aligns, and writes binary and Housekeeping (HK) data 
     to the output file, supporting both 10Hz averaged data and 100Hz 
@@ -930,9 +1006,12 @@ def gen_output_data(file, channel_format, data_dir, bin_data_dict, HK_data, HK_h
 
     if processed_points > 0:
         
-        print(f'\npercentage of no dropped online points = {((no_dropped_online/processed_points)*100): .2f}'
-              f'\npercentage of one dropped online point = {((one_dropped_online/processed_points)*100): .2f}'
-              f'\npercentage of two dropped online points = {((two_dropped_online/processed_points)*100): .2f}'
+        print(f'\npercentage of no dropped online points = \
+              {((no_dropped_online/processed_points)*100): .2f}'
+              f'\npercentage of one dropped online point = \
+              {((one_dropped_online/processed_points)*100): .2f}'
+              f'\npercentage of two dropped online points = \
+              {((two_dropped_online/processed_points)*100): .2f}'
               )
         
     else:
@@ -964,59 +1043,55 @@ def reprocess_binary_data(date, file, log_start_datetime, HK_headers_dict
                           , channel_format, data_dir, HK_data, data_freq=10
                           , channel_count=10, histograms=False):
     """
-    This function calls all of the other sub-functions above, to read and 
-    process the binary and HK files into counts data in a readable csv format.
+    Orchestrates the complete processing of a single binary data file (LIFCnts)
+    and its associated Housekeeping (HK) and Log data into a final, readable
+    CSV format.
+    
+    This function acts as the main wrapper, calling a series of sub-functions
+    to perform the following sequential steps:
+    1.  **Format Time:** Converts the log file's start time string into a
+        reference time in seconds.
+    2.  **Import Data:** Reads the raw binary file data and deinterleaves it
+        into a structured dictionary by channel.
+    3.  **Initialize Output:** Creates and writes metadata and headers to the
+        new output file.
+    4.  **Align Data:** Calculates time shifts and identifies the corresponding
+        start and end indices in the HK data that match the binary data time range.
+    5.  **Write Data:** Processes the data (calculates counts, linearizes,
+        normalizes, merges with HK data) and writes the output line-by-line.
     
     Parameters
     ----------
-    log_start_datetime : str
-        The log time of the corresponding LIF system restart.
     date : str
-        The date associated with the data being processed in the form 'YYYYMMDD'
+        The date associated with the data being processed in the form 'YYYYMMDD'.
+    file : str
+        The file name of the specific binary data file (LIFCnts) being processed.
+    log_start_datetime : str
+        The start time string extracted from the corresponding LIFLog file.
     HK_headers_dict : dict
-        A dictionary containing information about the Housekeeping data 
-        headers/channels.
-    channel_format : list
-        A list or array defining the format and types of the data channels 
-        within the binary files.
-    working_dir : str
-        The base directory where the binary data and output files are located.
-    bin_file_path : str, optional
-        The sub-directory path within `working_dir` where the raw binary files 
-        reside. The default is 'data_bin'.
-    HK_file_path : str, optional
-       The sub-directory path within `working_dir` where the HK files reside. 
-       The default is 'data_HK'. 
+        A dictionary containing the desired Housekeeping data headers/channels.
+        (This dictionary is modified in place during output file generation).
+    channel_format : dict
+        A dictionary defining the format and names of the data channels
+        within the binary files (used for deinterleaving and header creation).
+    data_dir : str
+        The base directory where the daily data folders and output files are located.
+    HK_data : dict
+        The consolidated dictionary containing all available Housekeeping data
+        read from all files in the current run.
     data_freq : int, optional
-        The frequency of data to be returned, can be 10 or 100 HZ. The default 
-        is 10.
-    skip_start_HK : int, optional
-        Number of HK data files to skip at the beginning of the specified 
-        folder. The default is 0.
-    skip_end_HK : int, optional
-        Number of HK data files to skip at the end of the specified folder. The 
-        default is 0.
-    skip_start_bin : int, optional
-        Number of binary data files to skip at the beginning of the specified 
-        folder. The default is 0.
-    skip_end_bin : int, optional
-        Number of binary data files to skip at the end of the specified folder. The 
-        default is 0
-    lag_override : int, optional
-        A manual override value for the time lag correction, if needed. The 
-        default is 0.
+        The frequency of data to be returned (10 or 100 Hz). The default is 10.
     channel_count : int, optional
         The total number of channels in the binary data. The default is 10.
     histograms : bool, optional
-        Flag to indicate whether histograms should be generated during 
-        processing. The default is False.
+        Flag to indicate whether histograms should be generated during
+        processing (passed to the final data writing step). The default is False.
     
     Returns
     -------
     None
-        The function performs file operations and generates output files but does not
-        explicitly return a value.
-    
+        The function performs file operations (reads data and writes a processed
+        output file) but does not explicitly return a value.
     """
     
     print('\nReprocessing file %s' % file)
@@ -1045,7 +1120,48 @@ def reprocess_binary_data(date, file, log_start_datetime, HK_headers_dict
 
 def misaligned_counts(data_dir, day_folders, channel_format, channel_count
                       , molecule, cal_task=2, plot=False):
-
+    """
+    Checks for and corrects misalignment (time lag) between binary data 
+    channels.
+    
+    This check is only performed for data files immediately following a 'soft
+    restart' (a system restart where the internal time counter did not reset).
+    The function determines the optimal channel shift by finding the lag (0, -1,
+    or +1 time step) that minimizes the standard deviation (SD) of the count
+    data during a specific high-concentration calibration period (where SD should
+    be lowest).
+    
+    The results (shifts) are appended to the 'processing_variables.txt' file.
+    
+    Parameters
+    ----------
+    data_dir : str
+        The root directory containing the daily data folders and the metadata files.
+    day_folders : list of str
+        A list of subdirectory names (e.g., '20240115') containing the HK data.
+    channel_format : dict
+        A dictionary defining the format and names of all data channels in the
+        binary files.
+    channel_count : int
+        The total number of channels in the binary data.
+    molecule : str
+        The name of the target molecule (e.g., 'H2O') used to identify the
+        relevant HK calibration gas flow channel (e.g., 'Cal_H2O_MFC_set').
+    cal_task : int, optional
+        The integer value of the 'Task' Housekeeping channel that identifies a
+        calibration run. Default is 2.
+    plot : bool, optional
+        If True, generates and displays plots showing the original vs. shifted
+        data for visual inspection of the alignment. Default is False.
+    
+    Returns
+    -------
+    None
+        The function performs file operations, printing diagnostics to the console,
+        and updates the 'processing_variables.txt' file with the determined
+        time shifts.
+    """
+    
     excluded_channels = ['laser_pwr_PT0', 'seed_LD_mode', 'time_ms']
     channels_to_use = [key for key in channel_format.keys() if key not in excluded_channels]
     
@@ -1272,6 +1388,39 @@ interpretation of counts data to give mixing ratios.
 """
 
 def read_processed_files(data_dir, day_folders):
+    """
+    Reads, concatenates, and cleans all processed data files (.txt) generated
+    by the processing pipeline within the specified day folders.
+    
+    The function iterates through the 'LIFProcessed_{day}' subdirectory for each
+    day, reads files starting with '20' and ending with '.txt' (which are the
+    final processed data files), and combines them into a single pandas DataFrame.
+    It then performs data cleaning and time conversion.
+    
+    Parameters
+    ----------
+    data_dir : str
+        The root directory containing the daily data subdirectories.
+    day_folders : list of str
+        A list of subdirectory names (e.g., '20240115') to search for processed data.
+    
+    Returns
+    -------
+    pandas.DataFrame
+        A single, concatenated and cleaned DataFrame containing the data from all
+        processed files. The DataFrame is sorted by the 'Date_time' column.
+        Returns an empty DataFrame if no files are found or processed.
+    
+    Notes
+    -----
+    - The function assumes the processed data files are CSV/space-delimited files
+      with the actual data headers starting on the **8th line (header=7)**,
+      after the metadata block.
+    - Missing values, represented by **-9999**, are replaced with NaN and then
+      dropped, ensuring only complete rows are kept.
+    - The time column is converted from **Mac time (seconds since 1904-01-01)**
+      to standard pandas datetime objects.
+    """
     
     print('\nreading Processed files:\n')
     
@@ -1325,6 +1474,27 @@ def read_processed_files(data_dir, day_folders):
     return cts_data
 
 def ref_normalise(data, channels):
+    """
+    Applies the reference cell normalisation step.
+    
+    Parameters
+    ----------
+    data : pandas.DataFrame
+        The input DataFrame containing the processed data, which must include
+        the normalized difference counts for the reference channel ('ref_diff_cts_norm')
+        and the normalized difference counts for all specified signal channels
+        (e.g., 'H2O_diff_cts_norm').
+    channels : list of str
+        A list of channel names (e.g., ['H2O', 'O2']) to apply the reference
+        normalization to.
+    
+    Returns
+    -------
+    pandas.DataFrame
+        A copy of the input DataFrame with new columns appended for the
+        reference-normalized difference counts. The new column names follow the
+        format: '{channel}_diff_cts_ref_norm'.
+    """
     
     data = data.copy()
     
@@ -1335,6 +1505,53 @@ def ref_normalise(data, channels):
     return data 
 
 def set_flags(data, pre_TS, post_TS, pre_PF, post_PF, ref_cts_limit):
+    """
+    Sets two distinct types of flagging mechanisms within the processed data:
+    a 'Peak_find_flag' to mask periods of low reference counts, and a time-based
+    flag within the 'Task' column to mark periods around task switches.
+    
+    The function operates in two main phases:
+    
+    1.  **Peak Find Flagging:** Identifies periods where the normalized reference
+        counts ('ref_diff_cts_norm') fall below a specified limit. It then sets
+        the 'Peak_find_flag' to 1 for a window of time surrounding these events
+        to exclude potentially noisy data from the laser falling off the peak.
+    
+    2.  **Task Switch Flagging:** Identifies transitions in the 'Task' column
+        (indicating system operation mode changes) and sets the 'Task' value to
+        '8' for a defined window of time around each switch, effectively flagging
+        these transition periods as invalid for analysis.
+    
+    Parameters
+    ----------
+    data : pandas.DataFrame
+        The input DataFrame containing the processed count data, including the
+        'Task' column and 'ref_diff_cts_norm'.
+    pre_TS : int
+        The number of data points (time steps) *before* a task switch to flag
+        (i.e., set 'Task' to 8).
+    post_TS : int
+        The number of data points (time steps) *after* a task switch to flag
+        (i.e., set 'Task' to 8).
+    pre_PF : int
+        The number of data points (time steps) *before* a low reference count
+        event to set the 'Peak_find_flag' to 1.
+    post_PF : int
+        The number of data points (time steps) *after* a low reference count
+        event to set the 'Peak_find_flag' to 1.
+    ref_cts_limit : float or int
+        The threshold value for 'ref_diff_cts_norm'. Data points below this limit
+        trigger the 'Peak_find_flag'.
+    
+    Returns
+    -------
+    pandas.DataFrame
+        The modified DataFrame with the following changes:
+        - The new column 'Peak_find_flag' (0 or 1) is added.
+        - The 'Task' column is updated to 8 during task transition periods.
+        - The 'Date_time' column is set as the DataFrame index.
+        - The temporary 'Task_Change' column is dropped.
+    """
     
     data = data.reset_index(drop=True)
     peak_flag_array = np.zeros(len(data), dtype=int)
@@ -1369,6 +1586,48 @@ def set_flags(data, pre_TS, post_TS, pre_PF, post_PF, ref_cts_limit):
     return data
 
 def zero_correct_average(data, channels, plot=False):
+    """
+    Applies a single, constant average zero-offset correction to the
+    reference-normalized count data for specified channels.
+    
+    The correction value is calculated by:
+    1. Identifying all data periods where the 'Task' is 4 (zeroing task) and the
+       'Peak_find_flag' is 0 (valid data).
+    2. Grouping these zero periods sequentially.
+    3. Calculating the mean of the reference-normalized counts for each individual
+       zero period.
+    4. Applying a 3-sigma (3 * standard deviation) spike filter to exclude
+       outlying zero period means.
+    5. Calculating the final grand average of the filtered zero means.
+    6. Subtracting this constant grand average from the entire data column.
+    
+    Parameters
+    ----------
+    data : pandas.DataFrame
+        The input DataFrame containing the processed, reference-normalized count
+        data and the 'Task' and 'Peak_find_flag' columns.
+    channels : list of str
+        A list of channel names (e.g., ['H2O', 'O2']) to which the zero correction
+        will be applied.
+    plot : bool, optional
+        If True, generates diagnostic plots: an errorbar plot of the zero period
+        means over time, and a histogram of the zero means. Default is False.
+    
+    Returns
+    -------
+    pandas.DataFrame
+        A copy of the input DataFrame with two new columns for each channel:
+        - '{channel}_zero_offset': The constant zero correction value applied.
+        - '{channel}_diff_cts_ref_norm_zero_corr': The final zero-corrected data.
+    
+    Notes
+    -----
+    - For the 'sig_B' channel (if present in `channels`), an additional filter
+      is applied, setting data to NaN if either 'BLC_0_flag' or 'BLC_1_flag'
+      is not equal to 1.0 during the zeroing task.
+    - The zero correction is **time-independent** and uses the overall mean of
+      the filtered zero-period averages.
+    """
     
     # use a mask to select all of the zero data associated with task 4
     # set the index to Date_time for averaging later
@@ -1690,7 +1949,6 @@ def analyse_cals(data, plot, max_conc, channels, data_dir, molecule):
             print(f'{channel} Ref norm cal slope standard deviation greater than 5% of mean')    
         
 def analyse_BLC_cals(all_data, data_dir, plot): 
-    
     
     file_path = os.path.join(data_dir, 'BLC_cal_data.txt')
     
