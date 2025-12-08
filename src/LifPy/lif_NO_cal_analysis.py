@@ -11,41 +11,42 @@ pre_peakfind = 20   # data points before ref_cts_diff drop to ignore
 post_peakfind = 200   # data points after ref_cts_diff drop to ignore
 no_cylinder_conc = 5000
 
-data_dir = ('C:/Users/pp835/OneDrive - University of York/Documents/'
-       'Data Analysis/CARES/Mace Head Full Data Analysis/Data'
+data_dir = ('C:\\Users\\pp835\\OneDrive - University of York\\Documents\\'
+       'Data Analysis\\CARES\\Mace Head Binary Data Analysis\\Data'
        )
+
+
 day_folders = lif.find_day_folders(data_dir)
+
 cts_data = lif.read_processed_files(data_dir, day_folders)
 
 
-# ---------------- Ref correction for CARES due to saturation ----------------
 
-epsilon = 1e-10  # A very small number close to zero
+# ------ Ref correction for CARES due to saturation ------
 
 limit = 90549
 log_arg = 1 - (cts_data['ref_diff_cts'] / limit)
 
-# Clip the argument for the logarithm calculation 
-# This forces all values slightly above zero, preventing a runtime warning.
-log_arg_clipped = np.clip(log_arg, a_min=epsilon, a_max=None)
-
-# Calculate the raw result using the clipped data
-result_raw = (182735 * (-np.log(log_arg_clipped) / 2.02)) / 100000
-
 cts_data['ref_diff_cts'] = np.where(
     log_arg > 0,
-    result_raw,
+    (182735 * (-np.log(log_arg) / 2.02)) / 100000,
     np.nan
 )
 cts_data['ref_diff_cts_norm'] = (cts_data['ref_diff_cts']/cts_data['lsr_pwr_mW'])
 
-# ---------------------- End of CARES NO Ref correction ----------------------
+# ------ End of CARES NO Ref correction ------
+
 
 
 cts_data_ref_norm = lif.ref_normalise(cts_data, channels=['sig_A', 'sig_B'])
+
 cts_data_flagged = lif.set_flags(cts_data_ref_norm, pre_taskswitch, post_taskswitch, pre_peakfind, post_peakfind, ref_cts_diff_limit)
+
 cts_data_zeroed = lif.zero_correct_average(cts_data_flagged, channels=['sig_A', 'sig_B'], plot=True)
+
 cts_data_MRs = cts_data_zeroed.copy()
+
+
 
 ###############################################################################
 #-----------------Tested and optimised up to this point -----------------------
@@ -54,7 +55,7 @@ cts_data_MRs = cts_data_zeroed.copy()
 
 cts_data_MRs['NO_mr'] = (cts_data_MRs["Cal_NO_MFC_Read"] / (cts_data_MRs["NO_Cell_Flow"]+cts_data_MRs['NO2_Cell_Flow']) * no_cylinder_conc)
 
-lif.analyse_cals_robust(cts_data_MRs, plot=True, max_conc=5000
+lif.analyse_cals_robust(cts_data_MRs, plot=False, max_conc=5000
                  , channels=['sig_A', 'sig_B'], data_dir=data_dir
                  , molecule='NO')
 
