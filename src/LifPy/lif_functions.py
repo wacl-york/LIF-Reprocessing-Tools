@@ -79,7 +79,7 @@ def find_day_folders(data_dir):
         that matches the YYYYMMDD date format.
     """
     
-    campaign_subdirs = os.listdir(data_dir)
+    campaign_subdirs = sorted(os.listdir(data_dir))
     day_folders = [folder for folder in campaign_subdirs 
                     if re.match("20[0-9]{2}[0-1][0-9][0-3][0-9]", folder) 
                     is not None]
@@ -140,6 +140,7 @@ def gen_processing_var(data_dir, day_folders, channel_format, channel_count):
         # Parse Log files
         log_dir = os.path.join(data_dir, day, f"LIFLog_{day}")
         # for logfile in all logfile
+        # TODO check if need to sort output from os.listdir
         for log_file in os.listdir(log_dir):
             if log_file[0:6] != 'LIFLog':  # Check first 6 characters, skip any non logfiles
                 continue
@@ -155,7 +156,7 @@ def gen_processing_var(data_dir, day_folders, channel_format, channel_count):
             
         # Parse binary files
         bin_dir = os.path.join(data_dir, day, f"LIFCnts_{day}")
-        for bin_file in os.listdir(bin_dir):
+        for bin_file in sorted(os.listdir(bin_dir)):
             if bin_file[0:7] != 'LIFCnts':  # Check first 6 characters, skip any non binfiles
                 continue
             
@@ -274,7 +275,7 @@ def import_HK_data(data_dir, day_folders):
         if not file_list:
             continue
 
-        for file in file_list:
+        for file in sorted(file_list):
 
             print(f'\r{file}', end='')
             
@@ -329,6 +330,7 @@ def gen_bin_file_list(bin_file_path, skip_start_bin, skip_end_bin):
         specific message if the skip parameters are set to discard all files.
     """
     
+    # TODO check if need to sort the os.listdir output
     file_list = [f for f in os.listdir(bin_file_path) \
                  if os.path.isfile(os.path.join(bin_file_path, f))]
     try:
@@ -601,6 +603,7 @@ def gen_output_file(data_dir, data_freq, file, channel_format, HK_headers_dict
    except OSError as e:
      print(f"Error creating directory {output_dir}: {e}")
    
+   # TODO check if need to order os.listdir output
    file_ind = str(len(os.listdir(output_dir))).zfill(2)
    
    output_filename = os.path.join(
@@ -1515,6 +1518,7 @@ def read_processed_files(data_dir, day_folders):
             print(f"Warning: Directory not found for day {day}: {processed_dir}")
             continue
         
+        # TODO check if need to sort os.listdir results
         file_list.extend(file_name for file_name in os.listdir(processed_dir) 
                          if file_name.startswith('20') 
                          and file_name.endswith('.txt'))
