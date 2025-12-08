@@ -4,14 +4,14 @@ LIF REPROCESSING TOOLS - PHIN_NO BRANCH
 
 The following contains instructions for how to set up the correct environment and perform binary reprocessing on LIF data using the scripts contained within the Phin_NO branch of LIF reprocessing code.
 
-###
+-------------------------------------------------------------------------------------------------
 
 Download the following python scripts and save them within a common directory to run them from:
 - lif_functions.py
 - lif_NO_generate_processing_variables.py / lif_SO2_generate_processing_variables.py
 - lif_NO_binary_reprocessing.py / lif_SO2_binary_reprocessing.py
 
-###
+-------------------------------------------------------------------------------------------------
 
 The raw data files to process must be organised in the following structure:
 
@@ -22,7 +22,7 @@ The raw data files to process must be organised in the following structure:
 
 - By running the reprocessing code, a fourth directory will be generated within each day, in the format LIFProcessed_YYYYMMDD
 
-###
+-------------------------------------------------------------------------------------------------
 
 Run the files in the following order:
 

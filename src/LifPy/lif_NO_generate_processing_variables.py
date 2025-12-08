@@ -14,8 +14,7 @@ only the processing variables.
 '''
 import lif_functions as lif
 
-data_dir = ('C:\\Users\\pp835\\OneDrive - University of York\\Documents\\'
-               'Data Analysis\\CARES\\Mace Head Binary Data Analysis\\Data')
+data_dir = (r'C:/Users/pp835/OneDrive - University of York/Documents/Data Analysis/CARES/Post campaign testing/Data')
 
 day_folders = lif.find_day_folders(data_dir)
 

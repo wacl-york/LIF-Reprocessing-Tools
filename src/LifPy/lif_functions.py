@@ -438,10 +438,10 @@ def import_bin_data(data_dir, date, file):
     - '2' : 2 bytes (16 bits) in size.
     """
     
-    bin_data = np.fromfile(os.path.join(data_dir, date, f'LIFCnts_{date}', file)
+    bin_data_array = np.fromfile(os.path.join(data_dir, date, f'LIFCnts_{date}', file)
                            , dtype='>i2') 
     
-    return bin_data
+    return bin_data_array
 
 def deinterleave_bin_data(bin_data, channel_format, channel_count,
                            rep_rate_Hz=200000):
@@ -986,16 +986,9 @@ def gen_output_data(file, channel_format, data_dir, bin_data_dict, HK_data
                 curr_time, HK_Time_s, HK_start_ind, HK_end_ind
                 )
          
-# =============================================================================
-#             gen_write = f"{curr_time},{laser_pwr_PT0[i]},{seed_LD_mode[i]},{seed_LD_current}"
-#             cts_values_at_i = [bin_data_dict[name][i] \
-#                                for name in bin_keys if '_counts' in name \
-#                                    and 'ref' not in name]
-# =============================================================================
             bin_values_at_i = [bin_data_dict[name][i] \
                                for name in bin_keys]
             bin_write = ','.join(map(str, bin_values_at_i))
-            #cts_write = ','.join(map(str, cts_values_at_i))
             HK_write = ','.join(
                 [f'{HK_data[key][HK_ind]}' for key in HK_headers]
             )
@@ -1004,18 +997,19 @@ def gen_output_data(file, channel_format, data_dir, bin_data_dict, HK_data
          
     processed_file.write(''.join(output_lines))     
 
-    if processed_points > 0:
-        
-        print(f'\npercentage of no dropped online points = \
-              {((no_dropped_online/processed_points)*100): .2f}'
-              f'\npercentage of one dropped online point = \
-              {((one_dropped_online/processed_points)*100): .2f}'
-              f'\npercentage of two dropped online points = \
-              {((two_dropped_online/processed_points)*100): .2f}'
-              )
-        
-    else:
-        print('\nNo processed points in file')
+    if data_freq == 10:
+        if processed_points > 0:
+            
+            print(f'\npercentage of no dropped online points = \
+                  {((no_dropped_online/processed_points)*100): .2f}'
+                  f'\npercentage of one dropped online point = \
+                  {((one_dropped_online/processed_points)*100): .2f}'
+                  f'\npercentage of two dropped online points = \
+                  {((two_dropped_online/processed_points)*100): .2f}'
+                  )
+            
+        else:
+            print('\nNo processed points in file')
     
     if histograms:
         
@@ -1040,7 +1034,7 @@ def gen_output_data(file, channel_format, data_dir, bin_data_dict, HK_data
         plt.show()
 
 def reprocess_binary_data(date, file, log_start_datetime, HK_headers_dict
-                          , channel_format, data_dir, HK_data, data_freq=10
+                          , channel_format, data_dir, HK_data_dict, data_freq=10
                           , channel_count=10, histograms=False):
     """
     Orchestrates the complete processing of a single binary data file (LIFCnts)
@@ -1107,19 +1101,19 @@ def reprocess_binary_data(date, file, log_start_datetime, HK_headers_dict
         )
     processed_file, nan_data = gen_output_file(
         data_dir, data_freq, file, channel_format, HK_headers_dict
-        , HK_data, date, bin_data_dict
+        , HK_data_dict, date, bin_data_dict
         )
     bin_time_arr, HK_start_ind, HK_end_ind = align_bin_HK(
-        bin_data_dict, log_start_datetime_seconds, HK_data
+        bin_data_dict, log_start_datetime_seconds, HK_data_dict
         )
     gen_output_data(
-        file, channel_format, data_dir, bin_data_dict, HK_data, HK_headers_dict, data_freq
+        file, channel_format, data_dir, bin_data_dict, HK_data_dict, HK_headers_dict, data_freq
         , bin_time_arr, HK_start_ind, HK_end_ind, nan_data, processed_file
         , histograms
         )
 
-def misaligned_counts(data_dir, day_folders, channel_format, channel_count
-                      , molecule, cal_task=2, plot=False):
+def misaligned_counts(data_dir, day_folders, channel_format, 
+                      channel_count, molecule, cal_task=2, plot=False):
     """
     Checks for and corrects misalignment (time lag) between binary data 
     channels.
@@ -1128,15 +1122,16 @@ def misaligned_counts(data_dir, day_folders, channel_format, channel_count
     restart' (a system restart where the internal time counter did not reset).
     The function determines the optimal channel shift by finding the lag (0, -1,
     or +1 time step) that minimizes the standard deviation (SD) of the count
-    data during a specific high-concentration calibration period (where SD should
-    be lowest).
+    data during a specific high-concentration calibration period (where SD 
+    should be lowest).
     
     The results (shifts) are appended to the 'processing_variables.txt' file.
     
     Parameters
     ----------
     data_dir : str
-        The root directory containing the daily data folders and the metadata files.
+        The root directory containing the daily data folders and the metadata 
+        files.
     day_folders : list of str
         A list of subdirectory names (e.g., '20240115') containing the HK data.
     channel_format : dict
@@ -1157,21 +1152,29 @@ def misaligned_counts(data_dir, day_folders, channel_format, channel_count
     Returns
     -------
     None
-        The function performs file operations, printing diagnostics to the console,
-        and updates the 'processing_variables.txt' file with the determined
-        time shifts.
+        The function performs file operations, printing diagnostics to the 
+        console, and updates the 'processing_variables.txt' file with the 
+        determined time shifts.
     """
     
     excluded_channels = ['laser_pwr_PT0', 'seed_LD_mode', 'time_ms']
-    channels_to_use = [key for key in channel_format.keys() if key not in excluded_channels]
+    channels_to_use = [
+        key for key in channel_format.keys() if key not in excluded_channels
+    ]
     
-    processing_variables_file_path = os.path.join(data_dir, 'processing_variables.txt')
-    processing_variables = pd.read_csv(processing_variables_file_path).copy()
+    processing_variables_file_path = os.path.join(
+        data_dir, 'processing_variables.txt'
+    )
+    processing_variables = pd.read_csv(
+        processing_variables_file_path
+    ).copy()
+    
     soft_restarts_file_path = os.path.join(data_dir, 'soft_restarts.txt')
     if not os.path.exists(soft_restarts_file_path):
         print('\nNo soft restarts identified - misalignment check not required')
         return
-    soft_restarts = pd.read_csv(os.path.join(data_dir, 'soft_restarts.txt')).copy()
+        
+    soft_restarts = pd.read_csv(soft_restarts_file_path).copy()
     HK_data = import_HK_data(data_dir, day_folders)
     
     for channel in channels_to_use:
@@ -1182,48 +1185,59 @@ def misaligned_counts(data_dir, day_folders, channel_format, channel_count
     # Loop through each soft restart 
     for i in soft_restarts.index:
         
-        print(f"\nchecking for misaligned data in file: {soft_restarts['bin_filename'][i]}")
+        print(f"\nchecking for misaligned data in file: "
+              f"{soft_restarts['bin_filename'][i]}" 
+              f"(restart index: {soft_restarts['restart_index'][i]})"
+              )
         
-        log_start_datetime_seconds = format_log_start_datetime(soft_restarts['log_start_datetime'][i])
-        bin_data = import_bin_data(data_dir, str(soft_restarts['date'][i]), str(soft_restarts['bin_filename'][i]))
-        bin_data_dict = deinterleave_bin_data(bin_data, channel_format, channel_count)
-        bin_time_arr, HK_start_ind, HK_end_ind = align_bin_HK(bin_data_dict, log_start_datetime_seconds, HK_data)
+        log_start_datetime_seconds = format_log_start_datetime(
+            soft_restarts['log_start_datetime'][i]
+        )
+        
+        date_str = str(soft_restarts['date'][i])
+        bin_filename = str(soft_restarts['bin_filename'][i])
+        
+        bin_data = import_bin_data(data_dir, date_str, bin_filename)
+        bin_data_dict = deinterleave_bin_data(
+            bin_data, channel_format, channel_count
+        )
+        bin_time_arr, HK_start_ind, HK_end_ind = align_bin_HK(
+            bin_data_dict, log_start_datetime_seconds, HK_data
+        )
         
         # Vectorised alignment
-        # Get the full 'Time_s' array from the HK data dictionary
         HK_time = HK_data['Time_s']
         
-        # Slice the HK time array to only include the relevant segment (based on indices from lif.align_bin_HK).
-        # Note: Since HK_data['Time_s'] is a NumPy array, we slice it directly.
+        # Slice the HK time array to only include the relevant segment
         HK_time_slice = HK_time[HK_start_ind : HK_end_ind + 1]
         
-        # Use np.searchsorted to find the index in HK_time_slice where each value in bin_time_arr 
-        # would need to be inserted to maintain order. This quickly performs the time-alignment
-        # for ALL Bin time points at once.
+        # Find the index in HK_time_slice for each bin_time_arr value
         HK_ind_relative = np.searchsorted(HK_time_slice, bin_time_arr)
         
-        # Clamp the indices to the valid range (0 to length-1) within the HK_time_slice segment.
-        HK_ind_relative = np.clip(HK_ind_relative, 0, len(HK_time_slice) - 1)
+        # Clamp the indices to the valid range (0 to length-1)
+        HK_ind_relative = np.clip(
+            HK_ind_relative, 0, len(HK_time_slice) - 1
+        )
         
-        # Convert the relative indices (within the slice) back to absolute indices 
-        # for the full HK_data arrays.
+        # Convert the relative indices back to absolute indices 
         HK_ind_absolute = HK_start_ind + HK_ind_relative
         
         data_df = pd.DataFrame()
         
-        # Pull the high-frequency Bin data columns (counts, etc.) directly using array slicing.
+        # Pull the high-frequency Bin data columns
+        arr_len = len(bin_time_arr)
         for channel in channels_to_use:
-             # Slices the array up to the length of the bin_time_arr
-             data_df[channel] = bin_data_dict[channel][:len(bin_time_arr)]
-             
+            # Slices the array up to the length of the bin_time_arr
+            data_df[channel] = bin_data_dict[channel][:arr_len]
+            
         # Add the 'seed_LD_mode' column from the Bin data
-        data_df['seed_LD_mode'] = bin_data_dict['seed_LD_mode'][:len(bin_time_arr)]
+        data_df['seed_LD_mode'] = bin_data_dict['seed_LD_mode'][:arr_len]
         
-        # Vectorized Lookup: Use the array of absolute indices (HK_ind_absolute) to select 
-        # the corresponding 'Task' status from the HK data in a single, fast operation.
-        # Note: Since HK_data['Task'] is a NumPy array, we index it directly.
+        # Vectorized Lookup for Task and MFC setpoint
         data_df['Task'] = HK_data['Task'][HK_ind_absolute]
-        data_df[f'Cal_{molecule}_MFC_set'] = HK_data[f'Cal_{molecule}_MFC_set'][HK_ind_absolute]
+        data_df[f'Cal_{molecule}_MFC_set'] = (
+            HK_data[f'Cal_{molecule}_MFC_set'][HK_ind_absolute]
+        )
         
         is_cal = data_df['Task'] == cal_task
         cal_transitions = is_cal.astype(int).diff().fillna(0)
@@ -1232,62 +1246,108 @@ def misaligned_counts(data_dir, day_folders, channel_format, channel_count
         file_shift = 0
         
         while len(start_indices) == 0:
-            print('\tcannot check for misalignment - no calibration found in this file')
+            print('\tcannot check for misalignment - '
+                  'no calibration found in this file')
             
             file_shift += 1
             
             first_file = soft_restarts['bin_filename'].iloc[i]
-            first_file_mask = processing_variables['bin_filename'] == first_file
+            first_file_mask = processing_variables[
+                'bin_filename'
+            ] == first_file
             
-            first_file_restart_index = processing_variables['restart_index'][first_file_mask].iloc[0]
-            next_file_restart_index = processing_variables['restart_index'].shift(-file_shift)[first_file_mask].iloc[0]
-            if first_file_restart_index != next_file_restart_index:
-                print('\tReached end of restart sequence. Skipping remaining check.')
-                unchecked_restarts.append((first_file, first_file_restart_index))
+            first_file_restart_index = processing_variables[
+                'restart_index'
+            ][first_file_mask].iloc[0]
+            
+            next_restart_index = processing_variables[
+                'restart_index'
+            ].shift(-file_shift)[first_file_mask].iloc[0]
+            
+            if first_file_restart_index != next_restart_index:
+                print('\tReached end of restart sequence. '
+                      'Skipping remaining check.')
+                unchecked_restarts.append(
+                    (first_file, first_file_restart_index)
+                )
                 break
             else:
-                next_file = processing_variables['bin_filename'].shift(-file_shift)[first_file_mask].iloc[0]
-                next_file_log = processing_variables['log_start_datetime'].shift(-file_shift)[first_file_mask].iloc[0]
-                next_file_date = int(processing_variables['date'].shift(-file_shift)[first_file_mask].iloc[0])
+                next_file = processing_variables[
+                    'bin_filename'
+                ].shift(-file_shift)[first_file_mask].iloc[0]
+                next_file_log = processing_variables[
+                    'log_start_datetime'
+                ].shift(-file_shift)[first_file_mask].iloc[0]
+                next_file_date = int(processing_variables[
+                    'date'
+                ].shift(-file_shift)[first_file_mask].iloc[0])
                 
                 print(f'\tchecking next file: {next_file}')
                 
-                log_start_datetime_seconds = format_log_start_datetime(next_file_log)
-                bin_data = import_bin_data(data_dir, str(next_file_date), next_file)
-                bin_data_dict = deinterleave_bin_data(bin_data, channel_format, channel_count)
-                bin_time_arr, HK_start_ind, HK_end_ind = align_bin_HK(bin_data_dict, log_start_datetime_seconds, HK_data)
+                log_start_datetime_seconds = format_log_start_datetime(
+                    next_file_log
+                )
+                bin_data = import_bin_data(
+                    data_dir, str(next_file_date), next_file
+                )
+                bin_data_dict = deinterleave_bin_data(
+                    bin_data, channel_format, channel_count
+                )
+                bin_time_arr, HK_start_ind, HK_end_ind = align_bin_HK(
+                    bin_data_dict, log_start_datetime_seconds, HK_data
+                )
                 HK_time = HK_data['Time_s']
                 HK_time_slice = HK_time[HK_start_ind : HK_end_ind + 1]
-                HK_ind_relative = np.searchsorted(HK_time_slice, bin_time_arr)
-                HK_ind_relative = np.clip(HK_ind_relative, 0, len(HK_time_slice) - 1)
+                HK_ind_relative = np.searchsorted(
+                    HK_time_slice, bin_time_arr
+                )
+                HK_ind_relative = np.clip(
+                    HK_ind_relative, 0, len(HK_time_slice) - 1
+                )
                 HK_ind_absolute = HK_start_ind + HK_ind_relative
                 
                 data_df = pd.DataFrame()
+                arr_len = len(bin_time_arr)
                 for channel in channels_to_use:
-                     # Slices the array up to the length of the bin_time_arr
-                     data_df[channel] = bin_data_dict[channel][:len(bin_time_arr)]
-                data_df['seed_LD_mode'] = bin_data_dict['seed_LD_mode'][:len(bin_time_arr)]
+                    # Slices the array up to the length of the bin_time_arr
+                    data_df[channel] = bin_data_dict[channel][:arr_len]
+                data_df['seed_LD_mode'] = (
+                    bin_data_dict['seed_LD_mode'][:arr_len]
+                )
                 data_df['Task'] = HK_data['Task'][HK_ind_absolute]
-                data_df[f'Cal_{molecule}_MFC_set'] = HK_data[f'Cal_{molecule}_MFC_set'][HK_ind_absolute]
+                data_df[f'Cal_{molecule}_MFC_set'] = (
+                    HK_data[f'Cal_{molecule}_MFC_set'][HK_ind_absolute]
+                )
                 is_cal = data_df['Task'] == cal_task
                 cal_transitions = is_cal.astype(int).diff().fillna(0)
-                start_indices = cal_transitions[cal_transitions == 1.0].index
+                start_indices = (
+                    cal_transitions[cal_transitions == 1.0].index
+                )
                 
                 
         if len(start_indices) == 0:
             continue
-        
+            
         first_start_index = start_indices[0]
-        end_indices = cal_transitions[(cal_transitions == -1.0) & (cal_transitions.index > first_start_index)].index
+        end_indices = cal_transitions[
+            (cal_transitions == -1.0) & 
+            (cal_transitions.index > first_start_index)
+        ].index
+        
         if len(end_indices) > 0:
             first_end_index = end_indices[0]
             cal_section = data_df.loc[first_start_index : first_end_index - 1]
         else:
-            print('\tmisalignment analysis may be unreliable - Calibration runs to the end of the file.')
+            print('\tmisalignment analysis may be unreliable - '
+                  'Calibration runs to the end of the file.')
             cal_section = data_df.loc[first_start_index:]
             
-        highest_cal_point = cal_section[f'Cal_{molecule}_MFC_set'].max()
-        test_section = cal_section[cal_section[f'Cal_{molecule}_MFC_set'] == highest_cal_point]
+        highest_cal_point = cal_section[
+            f'Cal_{molecule}_MFC_set'
+        ].max()
+        test_section = cal_section[
+            cal_section[f'Cal_{molecule}_MFC_set'] == highest_cal_point
+        ]
         
         test_section_length = len(test_section)
         start_index = int(test_section_length * 0.2)
@@ -1297,33 +1357,29 @@ def misaligned_counts(data_dir, day_folders, channel_format, channel_count
         test_section_shifted = test_section.copy()
         
         for channel in channels_to_use:     
-            #sum_of_sds = 0
             sds_results = []
-           
+            
             # For each lag (0, 1, -1)
-            #these are the defined shifts. These may change.
             for lag in [0, -1, 1]:
                 
                 sum_of_sds = 0
                 test_section_lag = test_section.copy()
-                test_section_lag[channel] = test_section_lag[channel].shift(lag) 
-           
-                # For each mode
-                #offline ==5
-                #online ==6
+                test_section_lag[channel] = (
+                    test_section_lag[channel].shift(lag)
+                ) 
+            
+                # For each mode (offline=5, online=6)
                 for mode in [5, 6]:
 
-                    values = test_section_lag.loc[test_section_lag['seed_LD_mode'] == mode, channel]
-                    # Calculate sd
-                    #add it on to the 0 from the sum_of_stds and then also the new calulated values
+                    values = test_section_lag.loc[
+                        test_section_lag['seed_LD_mode'] == mode, channel
+                    ]
+                    # Calculate sd and sum
                     sum_of_sds += values.std()
-                
+                    
                 sds_results.append((sum_of_sds, lag))
-            #print(channel, '', sds_results)
-
-               
-            # Find lag with minimum sum of sds. NB: min() of a list of tuples sorts by
-            # first tuple entry, i.e. sd.
+            
+            # Find lag with minimum sum of sds.
             best_lag = min(sds_results)[1]
             
             soft_restarts.loc[i, f'{channel}_shift'] = best_lag    
@@ -1331,9 +1387,13 @@ def misaligned_counts(data_dir, day_folders, channel_format, channel_count
             if best_lag != 0:
                 print(f'\tmisaligned data found in {channel}')
         
-            test_section_shifted[channel] = test_section[channel].shift(best_lag)
+            test_section_shifted[channel] = (
+                test_section[channel].shift(best_lag)
+            )
     
-        all_lags = soft_restarts.loc[i, [f'{channel}_shift' for channel in channels_to_use]]
+        all_lags = soft_restarts.loc[i, [
+            f'{channel}_shift' for channel in channels_to_use
+        ]]
         if (all_lags == 0).all():
             print('\tNo misaligned data found for any channel.')
     
@@ -1344,40 +1404,61 @@ def misaligned_counts(data_dir, day_folders, channel_format, channel_count
             
             num_plots = len(channels_to_use) + 1
             
-            fig, axes = plt.subplots(nrows=num_plots, figsize = (10, 3*num_plots))
+            fig, axes = plt.subplots(
+                nrows=num_plots, figsize = (10, 3*num_plots)
+            )
             fig.suptitle(soft_restarts['bin_filename'][i])
+            
             ax = axes[0]
-            ax.plot(test_section_shifted_plot.index, test_section_shifted_plot['seed_LD_mode'])
+            ax.plot(test_section_shifted_plot.index, 
+                    test_section_shifted_plot['seed_LD_mode'])
             ax.set_title('seed_LD_mode')
+            
             for i, channel in enumerate(channels_to_use):
                 ax = axes[i+1]
-                ax.plot(test_section_plot.index, test_section_plot[channel], 'b-', label='Original Data')
-                ax.plot(test_section_shifted_plot.index, test_section_shifted_plot[channel], 'r--', label='Shifted Data')
+                ax.plot(test_section_plot.index, 
+                        test_section_plot[channel], 
+                        'b-', 
+                        label='Original Data')
+                ax.plot(test_section_shifted_plot.index, 
+                        test_section_shifted_plot[channel], 
+                        'r--', 
+                        label='Shifted Data')
                 ax.set_title(f'{channel}')
                 ax.legend()
             plt.tight_layout()
             plt.show()
 
-    # merge the shift values onto the processing variables df based on restart index
-    shift_columns  = [f'{channel}_shift' for channel in channels_to_use]
+    # Merge the shift values onto the processing variables df
+    shift_columns = [f'{channel}_shift' for channel in channels_to_use]
     columns_to_merge = shift_columns + ['restart_index']
 
     processing_variables_shifts = pd.merge(
-        processing_variables
-        , soft_restarts[columns_to_merge]
-        , on='restart_index'
-        , how='left'               
+        processing_variables, 
+        soft_restarts[columns_to_merge], 
+        on='restart_index', 
+        how='left'               
     )
     
-    processing_variables_shifts[shift_columns] = processing_variables_shifts[shift_columns].fillna(0)
-    #processing_variables_shifts = processing_variables_shifts.drop(columns=['restart_index'])
+    # Fill NaN shifts (for files not checked) with 0
+    processing_variables_shifts[shift_columns] = (
+        processing_variables_shifts[shift_columns].fillna(0)
+    )
 
     # Overwrite the processing variables file with the shifts appended
-    processing_variables_shifts.to_csv(processing_variables_file_path, index=False)
+    processing_variables_shifts.to_csv(
+        processing_variables_file_path, index=False
+    )
     print('\nProcessing variables file updated to include shift values')
-    header = ('\n\nThe following periods could not be analysed for misaligned data as no calibration was found between restarts:'
-              '\nFirst file after restart,    Restart index')
-    data_lines = [f"\n{restart[0]},    {restart[1]}" for restart in unchecked_restarts]
+    
+    header = (
+        '\n\nThe following periods could not be analysed for misaligned data '
+        'as no calibration was found between restarts:'
+        '\nFirst file after restart,    Restart index'
+    )
+    data_lines = [
+        f"\n{restart[0]},    {restart[1]}" for restart in unchecked_restarts
+    ]
     print(header + "".join(data_lines))
 
 
@@ -1711,7 +1792,7 @@ def zero_correct_average(data, channels, plot=False):
     
 def analyse_cals(data, plot, max_conc, channels, data_dir, molecule):
     """
-    Analyzes calibration data for a specified cell by identifying
+    Analyses calibration data for a specified cell by identifying
     individual calibration events, applying data cleaning, and performing
     linear regression on both standard and ref-normalised signals.
     
@@ -1770,47 +1851,47 @@ def analyse_cals(data, plot, max_conc, channels, data_dir, molecule):
         
         cts_diff_v = f'{channel}_diff_cts'
         cts_diff_refnorm_v = f'{channel}_diff_cts_ref_norm'
-        data = data[[cts_diff_v, cts_diff_refnorm_v, f'{molecule}_mr', 'Task'
+        cal_data = data[[cts_diff_v, cts_diff_refnorm_v, f'{molecule}_mr', 'Task'
                          , f'Cal_{molecule}_MFC_Read', 'Cal_SB_MFC_Read', f'Cal_{molecule}_MFC_set'
                          , 'Date_time', 'lsr_pwr_mW']].copy()
-        data.replace([np.inf, -np.inf], np.nan, inplace=True)
-        data = data.reset_index(drop=True)
-        data['cal_sig_diff_cts_ref_norm'] = data[cts_diff_refnorm_v].where(
-            data['Task'] == 5
+        cal_data.replace([np.inf, -np.inf], np.nan, inplace=True)
+        cal_data = cal_data.reset_index(drop=True)
+        cal_data['cal_sig_diff_cts_ref_norm'] = cal_data[cts_diff_refnorm_v].where(
+            cal_data['Task'] == 5
             )
-        data['cal_true_ppt'] = data['NO_mr'].where(
-            (data.Task == 5) & (data['Cal_SB_MFC_Read'] < 0.01)
+        cal_data['cal_true_ppt'] = cal_data['NO_mr'].where(
+            (cal_data.Task == 5) & (cal_data['Cal_SB_MFC_Read'] < 0.01)
             )
-        data['cal_group'] = np.nan
-        data['cal_start_time'] = pd.NaT
+        cal_data['cal_group'] = np.nan
+        cal_data['cal_start_time'] = pd.NaT
         cal_num = 0
         cal_group_start_times = {}
-        tot_steps = len(data.index) - 1
+        tot_steps = len(cal_data.index) - 1
     
         
-        for i in data.index:
+        for i in cal_data.index:
             
             if i % 1000 == 0:
                 print('\r%.2f' % (abs(1 - (tot_steps - i) / tot_steps) * 100)
                       , end='')
             
-            if (i > 0 and pd.notnull(data['cal_true_ppt'][i]) 
-                and pd.isnull(data['cal_true_ppt'][max(0, i-3000):i].mean())):
+            if (i > 0 and pd.notnull(cal_data['cal_true_ppt'][i]) 
+                and pd.isnull(cal_data['cal_true_ppt'][max(0, i-3000):i].mean())):
                 cal_num += 1
-                cal_group_start_times[cal_num] = data.loc[i, 'Date_time']
-                data.loc[i, 'cal_start_time'] = data.loc[i, 'Date_time']
-            if (pd.notnull(data['cal_true_ppt'][i]) 
-                and pd.notnull(data['cal_true_ppt'][max(0, i-3001):max(0, i-100)].mean())):
-                data.loc[i, 'cal_group'] = cal_num
+                cal_group_start_times[cal_num] = cal_data.loc[i, 'Date_time']
+                cal_data.loc[i, 'cal_start_time'] = cal_data.loc[i, 'Date_time']
+            if (pd.notnull(cal_data['cal_true_ppt'][i]) 
+                and pd.notnull(cal_data['cal_true_ppt'][max(0, i-3001):max(0, i-100)].mean())):
+                cal_data.loc[i, 'cal_group'] = cal_num
          
             
     
-        backward_mean = data['cal_true_ppt'].rolling(window=200).mean().shift(1)
-        backward_std = data['cal_true_ppt'].rolling(window=200).std().shift(1)
-        forward_mean = data['cal_true_ppt'][::-1].rolling(window=200).mean()[::-1]
+        backward_mean = cal_data['cal_true_ppt'].rolling(window=200).mean().shift(1)
+        backward_std = cal_data['cal_true_ppt'].rolling(window=200).std().shift(1)
+        forward_mean = cal_data['cal_true_ppt'][::-1].rolling(window=200).mean()[::-1]
         mask = (forward_mean > backward_mean + backward_std/2) | \
            (forward_mean < backward_mean - backward_std/2)
-        data.loc[mask, 'cal_true_ppt'] = np.nan
+        cal_data.loc[mask, 'cal_true_ppt'] = np.nan
     
         print('\nnumber of cals =', cal_num )
     
@@ -1827,7 +1908,7 @@ def analyse_cals(data, plot, max_conc, channels, data_dir, molecule):
             
             current_cal_start_time = cal_group_start_times.get(cal, None)
             
-            cal_tmp_df = data[(data['cal_group'] == cal)].copy().dropna(
+            cal_tmp_df = cal_data[(cal_data['cal_group'] == cal)].copy().dropna(
                subset=[cts_diff_v, cts_diff_refnorm_v, 'NO_mr', 'cal_true_ppt'
                        , 'Cal_NO_MFC_set', 'lsr_pwr_mW']
             )
@@ -1868,8 +1949,6 @@ def analyse_cals(data, plot, max_conc, channels, data_dir, molecule):
                 std_cal_vars[cal] = cal_dict
                 
                 
-                # cal_data = pd.DataFrame({'X':cal_tmp_df['Cal_true_ppt'][30:], 'Y':cal_tmp_df['Cal_Sig_diff_cts_ref_norm'][30:]})
-                # cal_data.to_csv('Cell_'+cell+'_Cal_data_'+str(cal)+'.csv')
             if cal in Refnorm_cal_vars and cal in std_cal_vars:
                 
                 if current_cal_start_time is not None:
@@ -2015,6 +2094,285 @@ def analyse_BLC_cals(all_data, data_dir, plot):
     
     # Display the combined figure
     plt.show()
+
+
+
+
+
+def analyse_cals_robust(data, plot, max_conc, channels, data_dir, molecule,
+                        std_threshold=1.0, stability_window=50, 
+                        transient_points=20):
+    """
+    Analyzes calibration data with robust, dynamic detection of steady-state 
+    periods and safe flow-change transient filtering.
+    
+    Removes reliance on hardcoded index slicing (e.g., [300:]) by using 
+    signal stability statistics.
+    
+    Parameters
+    ----------
+    data : pandas.DataFrame
+        The complete dataset.
+    plot : bool
+        If True, generates and displays a plot of the time series and regression fits.
+    max_conc : float
+        The maximum true concentration (in ppt) to include in the regression.
+    channels : list of str
+        Identifiers for the measurement channels being analyzed.
+    data_dir : str
+        Directory to save the calibration results file.
+    molecule : str
+        The identifier for the analyte molecule (e.g., 'NO').
+    std_threshold : float, optional
+        The max allowed rolling standard deviation (e.g., in diff cts) 
+        for a signal segment to be considered steady-state. Default is 1.0.
+    stability_window : int, optional
+        The number of consecutive points required to confirm stability. Default is 50.
+    transient_points : int, optional
+        The number of points to filter out immediately following a 
+        significant flow change. Default is 20.
+    
+    Returns
+    -------
+    Std_cal_summary : pandas.DataFrame
+        Summary table for the standard signal regression.
+    Refnorm_cal_summary : pandas.DataFrame
+        Summary table for the ref-normalised signal regression.
+    """
+
+    def find_steady_state_start_index(series, threshold, window):
+        """Calculates the positional index where the signal enters steady-state."""
+        # Calculate the rolling standard deviation
+        rolling_std = series.rolling(window=window, min_periods=window).std()
+        
+        # Find where the rolling standard deviation drops below the threshold
+        stable_points = (rolling_std < threshold)
+        
+        # Look for the first index where 'window' consecutive points meet stability criteria
+        for idx in range(window, len(stable_points)):
+            if stable_points[idx-window:idx].all():
+                # Return the index where the stable window begins
+                return idx 
+        return 0 # If no stable state is found
+
+    for channel in channels:
+        
+        file_path = os.path.join(data_dir, f'{channel}_cal_data.txt')
+        
+        # --- File Setup ---
+        if not os.path.exists(file_path):
+            with open(file_path, 'w', newline='') as txtfile:
+                    fieldnames = ['cal_start_date_time', 'avg_lsr_pwr', 'R2'
+                                 , 'slope', 'intercept', 'R2_ref_norm'
+                                 , 'slope_ref_norm', 'intercept_ref_norm']
+                    header_row = ','.join(fieldnames)
+                    txtfile.write(header_row + '\n')    
+        
+        print(f'\nidentifying cals, {channel}')
+        
+        cts_diff_v = f'{channel}_diff_cts'
+        cts_diff_refnorm_v = f'{channel}_diff_cts_ref_norm'
+        
+        # --- Data Preparation (Column selection & initial cleaning) ---
+        cal_data = data[[cts_diff_v, cts_diff_refnorm_v, f'{molecule}_mr', 'Task'
+                         , f'Cal_{molecule}_MFC_Read', 'Cal_SB_MFC_Read', f'Cal_{molecule}_MFC_set'
+                         , 'Date_time', 'lsr_pwr_mW']].copy()
+        cal_data.replace([np.inf, -np.inf], np.nan, inplace=True)
+        cal_data = cal_data.reset_index(drop=True)
+        
+        cal_data['cal_sig_diff_cts_ref_norm'] = cal_data[cts_diff_refnorm_v].where(
+            cal_data['Task'] == 5
+            )
+        cal_data['cal_true_ppt'] = cal_data[f'{molecule}_mr'].where( # Use molecule_mr for concentration
+            (cal_data.Task == 5) & (cal_data['Cal_SB_MFC_Read'] < 0.01)
+            )
+            
+        cal_data['cal_group'] = np.nan
+        cal_data['cal_start_time'] = pd.NaT
+        cal_num = 0
+        cal_group_start_times = {}
+        tot_steps = len(cal_data.index) - 1
+        
+        # --- Calibration Group Identification (same logic as original) ---
+        for i in cal_data.index:
+            if i % 1000 == 0:
+                print('\r%.2f' % (abs(1 - (tot_steps - i) / tot_steps) * 100), end='')
+                
+            if (i > 0 and pd.notnull(cal_data['cal_true_ppt'][i]) 
+                and pd.isnull(cal_data['cal_true_ppt'][max(0, i-3000):i].mean())):
+                cal_num += 1
+                cal_group_start_times[cal_num] = cal_data.loc[i, 'Date_time']
+                cal_data.loc[i, 'cal_start_time'] = cal_data.loc[i, 'Date_time']
+            if (pd.notnull(cal_data['cal_true_ppt'][i]) 
+                and pd.notnull(cal_data['cal_true_ppt'][max(0, i-3001):max(0, i-100)].mean())):
+                cal_data.loc[i, 'cal_group'] = cal_num
+        
+        # --- Filtering for Signal Stability (Backward/Forward Mean - same logic as original) ---
+        backward_mean = cal_data['cal_true_ppt'].rolling(window=200).mean().shift(1)
+        backward_std = cal_data['cal_true_ppt'].rolling(window=200).std().shift(1)
+        forward_mean = cal_data['cal_true_ppt'][::-1].rolling(window=200).mean()[::-1]
+        mask = (forward_mean > backward_mean + backward_std/2) | \
+             (forward_mean < backward_mean - backward_std/2)
+        cal_data.loc[mask, 'cal_true_ppt'] = np.nan
+        
+        print('\nnumber of cals =', cal_num )
+
+        Refnorm_cal_vars = {}
+        std_cal_vars = {}
+        fig, axs = None, None
+        
+        if plot:
+            fig, axs = plt.subplots(4, cal_num, figsize=(6 * cal_num, 12))
+        
+        for cal in range(1,cal_num+1):
+            
+            print(f'\ranalysing cal {cal}', end='')
+            
+            current_cal_start_time = cal_group_start_times.get(cal, None)
+            
+            cal_tmp_df = cal_data[(cal_data['cal_group'] == cal)].copy().dropna(
+                subset=[cts_diff_v, cts_diff_refnorm_v, f'{molecule}_mr', 'cal_true_ppt'
+                        , f'Cal_{molecule}_MFC_set', 'lsr_pwr_mW']
+            )
+            
+            avg_lsr_pwr = cal_tmp_df['lsr_pwr_mW'].mean()
+            
+            # 🚀 ROBUST FLOW CHANGE FILTERING 🚀
+            cal_tmp_df['point_filter'] = 0
+            mfc_set_col = f'Cal_{molecule}_MFC_set'
+            cal_tmp_df['cal_flow_diff'] = cal_tmp_df[mfc_set_col].diff().abs()
+            
+            # Find original index keys where a significant setpoint change occurs
+            change_indices = cal_tmp_df[cal_tmp_df['cal_flow_diff'] > 0.05].index.tolist()
+            
+            # Create a map from original index key to positional index (iloc)
+            index_map = {idx: i for i, idx in enumerate(cal_tmp_df.index)}
+            
+            for index_key in change_indices:
+                iloc_start = index_map[index_key]
+                # Filter a window of size transient_points starting at the change point
+                iloc_end = min(iloc_start + transient_points, cal_tmp_df.shape[0])
+                
+                # Use iloc (integer location) for safe filtering
+                # get_loc('point_filter') finds the column index
+                cal_tmp_df.iloc[iloc_start:iloc_end, 
+                                cal_tmp_df.columns.get_loc('point_filter')] = 1
+                                
+            # Apply the flow filter
+            cal_tmp_df = cal_tmp_df[(cal_tmp_df['point_filter'] == 0) 
+                                    & (cal_tmp_df['cal_true_ppt'] < max_conc)]
+
+            # 🚀 DYNAMIC STEADY-STATE DETECTION & SLICING 🚀
+            
+            # Reset index to ensure find_steady_state_start_index works on positional indices
+            cal_tmp_df_reset = cal_tmp_df.reset_index(drop=True)
+            
+            steady_state_start_index = find_steady_state_start_index(
+                cal_tmp_df_reset[cts_diff_refnorm_v], # Analyze the signal to be regressed
+                std_threshold, 
+                stability_window
+            )
+
+            required_min_points = 50 
+            if (cal_tmp_df_reset.shape[0] - steady_state_start_index) > required_min_points:
+                
+                # Slicing based on the dynamic index
+                X = cal_tmp_df_reset['cal_true_ppt'][steady_state_start_index:].values.reshape(-1, 1)
+                Y = cal_tmp_df_reset['cal_sig_diff_cts_ref_norm'][steady_state_start_index:].values.reshape(-1, 1) # Ref-Normalized Signal
+                Y2 = cal_tmp_df_reset[cts_diff_v][steady_state_start_index:].values.reshape(-1, 1) # Standard Signal
+
+                # --- Ref-Normalized Regression (Y vs X) ---
+                linear_regressor = LinearRegression()
+                reg = linear_regressor.fit(X, Y)
+                Y_pred = linear_regressor.predict(X)
+                
+                Norm_cal_dict = {}
+                Norm_cal_dict['cal_start_date_time'] = current_cal_start_time
+                Norm_cal_dict['avg_lsr_pwr'] = avg_lsr_pwr
+                Norm_cal_dict['R2'] = reg.score(X,Y)
+                Norm_cal_dict['Slope'] = reg.coef_[0,0]
+                Norm_cal_dict['Intercept'] = reg.intercept_[0]
+                Refnorm_cal_vars[cal] =  Norm_cal_dict
+                
+                # --- Standard Regression (Y2 vs X) ---
+                linear_regressor = LinearRegression()
+                reg2 = linear_regressor.fit(X, Y2)
+                Y2_pred = linear_regressor.predict(X)
+                
+                cal_dict = {}
+                cal_dict['cal_start_date_time'] = current_cal_start_time
+                cal_dict['avg_lsr_pwr'] = avg_lsr_pwr
+                cal_dict['R2'] = reg2.score(X,Y2)
+                cal_dict['Slope'] = reg2.coef_[0,0]
+                cal_dict['Intercept'] = reg2.intercept_[0]
+                std_cal_vars[cal] = cal_dict
+
+                # --- Data Saving ---
+                if current_cal_start_time is not None:
+                    new_data_to_append = {
+                        'cal_start_date_time': [current_cal_start_time],
+                        'avg_lsr_pwr': [avg_lsr_pwr],
+                        'R2': [std_cal_vars[cal]['R2']],
+                        'slope': [std_cal_vars[cal]['Slope']],
+                        'intercept': [std_cal_vars[cal]['Intercept']],
+                        'R2_ref_norm': [Refnorm_cal_vars[cal]['R2']],
+                        'slope_ref_norm': [Refnorm_cal_vars[cal]['Slope']],
+                        'intercept_ref_norm': [Refnorm_cal_vars[cal]['Intercept']]
+                    }
+                    new_data_to_append_df = pd.DataFrame(new_data_to_append)
+                    new_data_to_append_df.to_csv(file_path, mode='a', header=False, index=False, sep=',')
+                
+                if plot:
+                    # Time series plots need the full, filtered data (before SS slice)
+                    full_signal_refnorm = cal_tmp_df_reset['cal_sig_diff_cts_ref_norm'].values
+                    full_signal_std = cal_tmp_df_reset[cts_diff_v].values
+
+                    # --- First Plot: Standard Signal Time Series ---
+                    axs[0, cal-1].plot(cal_tmp_df_reset.index, full_signal_std)
+                    axs[0, cal-1].axvline(x=steady_state_start_index, color='g', linestyle='--', label='SS Start')
+                    axs[0, cal-1].set_title(f'Standard TS {cal} ({channel})')
+
+                    # --- Second Plot: Standard Regression ---
+                    axs[1,cal-1].scatter(X, Y2)
+                    axs[1,cal-1].plot(X, Y2_pred, color='red')
+                    axs[1,cal-1].set_title(f'Std Reg {cal} R2: {reg2.score(X,Y2):.3f}')
+        
+                    # --- Third Plot: Ref-Normalised Signal Time Series ---
+                    axs[2,cal-1].plot(cal_tmp_df_reset.index, full_signal_refnorm)
+                    axs[2, cal-1].axvline(x=steady_state_start_index, color='g', linestyle='--', label='SS Start')
+                    axs[2,cal-1].set_title(f'Ref Norm TS {cal} ({channel})')
+
+                    # --- Fourth Plot: Ref-Normalised Regression ---
+                    axs[3,cal-1].scatter(X, Y)
+                    axs[3,cal-1].plot(X, Y_pred, color='red')
+                    axs[3,cal-1].set_title(f'Ref Norm Reg {cal} R2: {reg.score(X,Y):.3f}')
+            else:
+                print(f'\nWarning: Cal {cal} in {channel} has insufficient stable points for regression.')
+
+        # Display the combined figure
+        if plot:
+            plt.tight_layout()
+            plt.show()
+            
+        Std_cal_summary = pd.DataFrame(std_cal_vars).transpose()
+        Refnorm_cal_summary = pd.DataFrame(Refnorm_cal_vars).transpose()
+        
+        # --- Print Summaries and Slope Analysis ---
+        print(f'{channel} Non ref normalised cals')
+        print(Std_cal_summary)
+        if (Std_cal_summary['Slope'].size > 0 and 100*(Std_cal_summary['Slope'].std()/Std_cal_summary['Slope'].mean())) < 5:
+            print(f'{channel} Cal slope standard deviation < 5% of mean')
+        else:
+            print(f'{channel} Cal slope standard deviation greater than 5% of mean')
+    
+        print(f'{channel} Reference cell normalised cals')
+        print(Refnorm_cal_summary)
+        if (Refnorm_cal_summary['Slope'].size > 0 and 100*(Refnorm_cal_summary['Slope'].std()/Refnorm_cal_summary['Slope'].mean())) < 5:
+            print(f'{channel} Ref norm cal slope standard deviation < 5% of mean')
+        else:
+            print(f'{channel} Ref norm cal slope standard deviation greater than 5% of mean')
+
+    return Std_cal_summary, Refnorm_cal_summary
 
 
 

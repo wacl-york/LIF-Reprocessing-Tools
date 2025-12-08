@@ -14,8 +14,7 @@ import os
 import pandas as pd
 import lif_functions as lif    
  
-data_dir = ('C:\\Users\\pp835\\OneDrive - University of York\\Documents\\'
-               'Data Analysis\\CARES\\Mace Head Binary Data Analysis\\Data')
+data_dir = (r'C:/Users/pp835/OneDrive - University of York/Documents/Data Analysis/CARES/Post campaign testing/Data')
 
 day_folders = lif.find_day_folders(data_dir)
 
@@ -39,7 +38,7 @@ processing_variables = pd.read_csv(os.path.join(data_dir, 'processing_variables.
 date_mask = processing_variables['date'] >= 20250623
 processing_variables = processing_variables[date_mask]
 
-HK_data = lif.import_HK_data(data_dir, day_folders)
+HK_data_dict = lif.import_HK_data(data_dir, day_folders)
 
 for i in processing_variables.index:
     
@@ -49,7 +48,7 @@ for i in processing_variables.index:
         , file = str(processing_variables['bin_filename'][i])
         , log_start_datetime = str(processing_variables['log_start_datetime'][i])
         , data_dir = data_dir
-        , HK_data = HK_data
+        , HK_data = HK_data_dict
         , channel_count = channel_count
         , channel_format = channel_format 
         , HK_headers_dict = HK_headers_dict

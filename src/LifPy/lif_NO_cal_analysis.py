@@ -55,9 +55,7 @@ cts_data_MRs = cts_data_zeroed.copy()
 
 cts_data_MRs['NO_mr'] = (cts_data_MRs["Cal_NO_MFC_Read"] / (cts_data_MRs["NO_Cell_Flow"]+cts_data_MRs['NO2_Cell_Flow']) * no_cylinder_conc)
 
-
-
-lif.analyse_cals(cts_data_MRs, plot=False, max_conc=5000
+lif.analyse_cals_robust(cts_data_MRs, plot=False, max_conc=5000
                  , channels=['sig_A', 'sig_B'], data_dir=data_dir
                  , molecule='NO')
 
