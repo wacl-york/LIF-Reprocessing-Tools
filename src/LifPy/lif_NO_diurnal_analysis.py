@@ -4,16 +4,10 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from matplotlib.dates import DateFormatter, MonthLocator
 
-# --- Configuration and Data Directory ---
-data_dir = (
-    'C:\\Users\\pp835\\OneDrive - University of York\\Documents\\'
-    'Data Analysis\\CARES\\Mace Head Binary Data Analysis\\Data'
-)
 
-# --- 1. Load and Preprocess NOx Data ---
 print("Loading NOx data...")
 try:
-    nox_file = os.path.join(data_dir, 'NOx_CARES_MaceHead_prelim.txt')
+    nox_file = os.path.join(data_dir, 'file_save_test_data.txt')
     NOx_data = pd.read_csv(nox_file)
     # Convert 'Date_time' to datetime objects and floor to the minute
     NOx_data['Date_time'] = (
@@ -25,41 +19,6 @@ except FileNotFoundError:
         "Please check the path and filename."
     )
     raise
-
-# --- 2. Load and Preprocess Flag Data (Currently unused in the final merge) ---
-print("Processing Flag data...")
-try:
-    flag_file = os.path.join(data_dir, 'mace_head_flag.csv')
-    flag_data = pd.read_csv(flag_file)
-    flag_data.columns = flag_data.columns.str.strip()
-    
-    # Rename and convert time column
-    time_col = 'Datetime (Start of hour)'
-    flag_data['Date_time'] = pd.to_datetime(flag_data[time_col], 
-                                            format='mixed')
-    flag_data = flag_data.rename(
-        columns={'CLEAN = 0 (FLAG=0 Traj=0)': 'clean_flag'}
-    )
-    
-    # Forward fill trajectory data
-    traj_col = 'Trajectory (120 hr -clean = 0)'
-    flag_data[traj_col] = flag_data[traj_col].ffill()
-    
-    # Calculate the 'clean_flag' based on FLAG and Trajectory conditions
-    flag_data['clean_flag'] = np.where(
-        (flag_data['FLAG (WS=0, WD=0, BC=0)'] == 0) &
-        (flag_data[traj_col] == 0), 
-        0, 
-        np.nan
-    )
-    flag_data = flag_data.set_index('Date_time')
-    flag_data_upsampled = flag_data['clean_flag'].resample('min').ffill()
-    flag_data_upsampled = flag_data_upsampled.reset_index()
-
-except FileNotFoundError:
-    print(f"Error: Flag file not found in {data_dir}.")
-except Exception as e:
-    print(f"An error occurred during flag data processing: {e}")
 
 # --- 3. Load and Preprocess Baseline Data (Crucial for filtering) ---
 print("Loading and processing Baseline data...")
@@ -103,21 +62,13 @@ NOx_data = pd.merge(NOx_data, baseline_data_upsampled,
 # Filter for baseline conditions where 'B' is exactly 10, otherwise NaN
 NOx_data['clean_NO'] = np.where(
     NOx_data['B'] == 10, 
-    NOx_data['NO_amb_ppt'], 
+    NOx_data['amb_NO_ppt'], 
     np.nan
 )
-NOx_data['clean_NOx'] = np.where(
+NOx_data['clean_NO2'] = np.where(
     NOx_data['B'] == 10, 
-    NOx_data['NOx_amb_ppt'], 
+    NOx_data['amb_NO2_ppt'], 
     np.nan
-)
-
-# Calculate clean NO2 concentration (NO2 = NOx - NO)
-NOx_data['clean_NO2'] = NOx_data['clean_NOx'] - NOx_data['clean_NO']
-
-# NEW: Calculate the raw NO2 concentration for the 'unclean' data plot
-NOx_data['NO2_amb_ppt'] = (
-    NOx_data['NOx_amb_ppt'] - NOx_data['NO_amb_ppt']
 )
 
 # --- 4.5. Outlier/Spike Removal using IQR Method (3.0 * IQR) ---
@@ -146,9 +97,6 @@ def iqr_outlier_filter(series, iqr_factor=3.0):
 
 # Apply filtering to the clean columns
 NOx_data['clean_NO'] = iqr_outlier_filter(NOx_data['clean_NO'])
-NOx_data['clean_NOx'] = iqr_outlier_filter(NOx_data['clean_NOx'])
-# The clean_NO2 column is filtered again to remove any resultant outliers 
-# that may have been created during the subtraction.
 NOx_data['clean_NO2'] = iqr_outlier_filter(NOx_data['clean_NO2'])
 
 
@@ -159,7 +107,7 @@ NOx_data = NOx_data.set_index('Date_time')
 
 # Step 1: Calculate the mean concentration for every 60-minute block.
 NOx_data_60min_means = NOx_data[
-    ['clean_NO', 'clean_NOx', 'clean_NO2']
+    ['clean_NO', 'clean_NO2']
 ].resample('60 min').mean()
 
 # Step 2: Group the 60-minute means by time of day and calculate stats
@@ -281,12 +229,12 @@ print("Generating full time series plots (60-min means) showing clean "
 # 'Other' data is where the B flag is NOT 10
 NOx_data['other_NO'] = np.where(
     NOx_data['B'] != 10, 
-    NOx_data['NO_amb_ppt'], 
+    NOx_data['amb_NO_ppt'], 
     np.nan
 )
 NOx_data['other_NO2'] = np.where(
     NOx_data['B'] != 10, 
-    NOx_data['NO2_amb_ppt'], 
+    NOx_data['amb_NO2_ppt'], 
     np.nan
 )
 

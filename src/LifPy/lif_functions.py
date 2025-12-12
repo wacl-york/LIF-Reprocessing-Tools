@@ -1,3 +1,4 @@
+import csv
 import math
 import os
 import re
@@ -8,10 +9,10 @@ import numpy as np
 import pandas as pd
 
 from itertools import islice
-from sklearn.linear_model import LinearRegression
+from matplotlib.dates import DateFormatter, MonthLocator
+from scipy.stats import linregress
 
 from datetime import datetime as dt
-
 
 """
 This first section contains all of the sub-functions that are subsequently 
@@ -1506,7 +1507,7 @@ def read_processed_files(data_dir, day_folders):
       to standard pandas datetime objects.
     """
     
-    print('\nreading Processed files:\n')
+    print('\nreading Processed files:')
     
     dfs = []
     
@@ -1581,6 +1582,8 @@ def ref_normalise(data, channels):
         format: '{channel}_diff_cts_ref_norm'.
     """
     
+    print('\nnormalising counts to the reference cell')
+    
     data = data.copy()
     
     for channel in channels:
@@ -1637,6 +1640,7 @@ def set_flags(data, pre_TS, post_TS, pre_PF, post_PF, ref_cts_limit):
         - The 'Date_time' column is set as the DataFrame index.
         - The temporary 'Task_Change' column is dropped.
     """
+    print('\nsetting flags for transient data periods')
     
     data = data.reset_index(drop=True)
     peak_flag_array = np.zeros(len(data), dtype=int)
@@ -1713,6 +1717,8 @@ def zero_correct_average(data, channels, plot=False):
     - The zero correction is **time-independent** and uses the overall mean of
       the filtered zero-period averages.
     """
+    
+    print('\nCalculating zero correction')
     
     # use a mask to select all of the zero data associated with task 4
     # set the index to Date_time for averaging later
@@ -1792,603 +1798,1009 @@ def zero_correct_average(data, channels, plot=False):
             
             plt.show()
 
-    return data
-    
-def analyse_cals(data, plot, max_conc, channels, data_dir, molecule):
-    """
-    Analyses calibration data for a specified cell by identifying
-    individual calibration events, applying data cleaning, and performing
-    linear regression on both standard and ref-normalised signals.
-    
-    The function identifies calibration groups based on flow changes and
-    filters out transient signal/flow switching periods before fitting.
-    Regression results (R-squared, slope, intercept) are summarized, printed,
-    saved to a file, and optionally plotted.
-    
-    Parameters
-    ----------
-    all_data : pandas.DataFrame
-        The complete dataset.
-    plot : bool
-        If True, generates and displays a 4xN subplot figure (where N is the
-        number of calibration events) showing signal time series and
-        regression fits.
-    max_conc : float
-        The maximum true concentration (in ppt) to include in the linear
-        regression analysis. Points above this value are excluded.
-    cell : str
-        The identifier for the measurement cell being analyzed (e.g., 'A', 'B').
-        Used to dynamically select column names and output filenames.
-    
-    Returns
-    -------
-    Std_cal_summary : pandas.DataFrame
-        A summary table of linear regression results for the standard
-        (non-ref-normalised) signal
-    Refnorm_cal_summary : pandas.DataFrame
-        A summary table of linear regression results for the ref-normalised
-        signal.
-    
-    Notes
-    -----
-    - Calibration groups are defined by a gap of non-calibration points 
-      (3000 points) followed by a calibration point (Task == 5).
-    - Data points are filtered to exclude flow switching transients and signal
-      instabilities based on rolling statistics and flow rate changes 
-      (diff > 0.05).
-    - Regression is performed on data points starting at index 300 of the 
-      filtered calibration period to ensure steady-state conditions.
-    """
+    return data   
+
+def analyse_cals(data, data_dir, channels, molecule, cal_cylinder_conc
+                 , plot, save_csv, cal_task):
+
+    print('\nsearching dataset for calibration periods')
+
+    cts_data = data.copy()
+
+    # Find all flow columns and sum them to a total flow
+    flows = [column for column in cts_data.columns
+             if 'Flow' in column]
+    cts_data['total_flow'] = cts_data[flows].sum(axis=1)
+    # Calculate the MR associated with the cal gas and flow
+    cts_data[f'{molecule}_mr'] = (
+        cts_data[f'Cal_{molecule}_MFC_Read'] / (cts_data['total_flow']
+        ) * cal_cylinder_conc)
+
+    # Isolate the columns of data required for the cal analysis
+    diff_cts_columns = [f'{channel}_diff_cts_ref_norm_zero_corr'
+                        for channel in channels]
+    additional_columns = ['Date_time', 'Task', 'lsr_pwr_mW',
+                          f'{molecule}_mr', f'Cal_{molecule}_MFC_Read',
+                          'Cal_SB_MFC_Read', f'Cal_{molecule}_MFC_set']
+    all_columns = diff_cts_columns + additional_columns
+    # Copy the dataframe containing only the columns of interest
+    cts_data = cts_data[all_columns].copy()
+
+    # Find start of calibration periods (Task 5 starts)
+    cts_data['start_of_cal'] = np.where(
+        (cts_data['Task'] == cal_task) & (cts_data['Task'].shift(1) != cal_task)
+        , 1
+        , 0
+        )
+    # Mask for calibration periods with cal SB off
+    cal_task_mask = ((cts_data['Task'] == cal_task) &
+                     (cts_data['Cal_SB_MFC_Read'] < 0.01))
+    cts_data = cts_data[cal_task_mask]
+    # Cumulatively sum the start_of_cal flags to number the calibrations
+    cts_data['cal_number'] = cts_data['start_of_cal'].cumsum()
+
+    num_cals = cts_data['cal_number'].max()
+    print(f'\n{num_cals} calibrations found')
+
+    # --- PLOTTING SETUP ---
+    if plot:
+        ROWS = 4
+        COLS = 8
+        MAX_PLOTS = ROWS * COLS
+        plot_counter = 0
+        fig = None
+        ax = None
+    # ----------------------
+
+    fieldnames = ['cal_number', 'cal_start_date_time', 'avg_lsr_pwr', 'slope',
+                  'intercept', 'R2', 'slope_std_err']
+
     for channel in channels:
-    
-        file_path = os.path.join(data_dir, f'{channel}_cal_data.txt')
-        
-        if not os.path.exists(file_path):
-            with open(file_path, 'w', newline='') as txtfile:
-                    fieldnames = ['cal_start_date_time', 'avg_lsr_pwr', 'R2'
-                                  , 'slope', 'intercept', 'R2_ref_norm'
-                                  , 'slope_ref_norm', 'intercept_ref_norm']
-                    header_row = ','.join(fieldnames)
-                    txtfile.write(header_row + '\n')    
-        
-        print(f'\nidentifying cals, {channel}')
-        
-        cts_diff_v = f'{channel}_diff_cts'
-        cts_diff_refnorm_v = f'{channel}_diff_cts_ref_norm'
-        cal_data = data[[cts_diff_v, cts_diff_refnorm_v, f'{molecule}_mr', 'Task'
-                         , f'Cal_{molecule}_MFC_Read', 'Cal_SB_MFC_Read', f'Cal_{molecule}_MFC_set'
-                         , 'Date_time', 'lsr_pwr_mW']].copy()
-        cal_data.replace([np.inf, -np.inf], np.nan, inplace=True)
-        cal_data = cal_data.reset_index(drop=True)
-        cal_data['cal_sig_diff_cts_ref_norm'] = cal_data[cts_diff_refnorm_v].where(
-            cal_data['Task'] == 5
-            )
-        cal_data['cal_true_ppt'] = cal_data['NO_mr'].where(
-            (cal_data.Task == 5) & (cal_data['Cal_SB_MFC_Read'] < 0.01)
-            )
-        cal_data['cal_group'] = np.nan
-        cal_data['cal_start_time'] = pd.NaT
-        cal_num = 0
-        cal_group_start_times = {}
-        tot_steps = len(cal_data.index) - 1
-    
-        
-        for i in cal_data.index:
+
+        print(f'\nAnalysing cals in {channel}:')
+
+        if save_csv:
+            file_path = os.path.join(data_dir, f'{channel}_cal_data.txt')
+            # Open the file for writing (or append if it exists)
+            txtfile = open(file_path, 'w', newline='')
+            writer = csv.DictWriter(txtfile, fieldnames=fieldnames)
+
+            writer.writeheader()
             
-            if i % 1000 == 0:
-                print('\r%.2f' % (abs(1 - (tot_steps - i) / tot_steps) * 100)
-                      , end='')
-            
-            if (i > 0 and pd.notnull(cal_data['cal_true_ppt'][i]) 
-                and pd.isnull(cal_data['cal_true_ppt'][max(0, i-3000):i].mean())):
-                cal_num += 1
-                cal_group_start_times[cal_num] = cal_data.loc[i, 'Date_time']
-                cal_data.loc[i, 'cal_start_time'] = cal_data.loc[i, 'Date_time']
-            if (pd.notnull(cal_data['cal_true_ppt'][i]) 
-                and pd.notnull(cal_data['cal_true_ppt'][max(0, i-3001):max(0, i-100)].mean())):
-                cal_data.loc[i, 'cal_group'] = cal_num
-         
-            
-    
-        backward_mean = cal_data['cal_true_ppt'].rolling(window=200).mean().shift(1)
-        backward_std = cal_data['cal_true_ppt'].rolling(window=200).std().shift(1)
-        forward_mean = cal_data['cal_true_ppt'][::-1].rolling(window=200).mean()[::-1]
-        mask = (forward_mean > backward_mean + backward_std/2) | \
-           (forward_mean < backward_mean - backward_std/2)
-        cal_data.loc[mask, 'cal_true_ppt'] = np.nan
-    
-        print('\nnumber of cals =', cal_num )
-    
-        Refnorm_cal_vars = {}
-        std_cal_vars = {}
-        fig, axs = None, None
-    
-        if plot:
-            fig, axs = plt.subplots(4, cal_num, figsize=(6 * cal_num, 12))
-    
-        for cal in range(1,cal_num+1):
-            
-            print(f'\ranalysing cal {cal}', end='')
-            
-            current_cal_start_time = cal_group_start_times.get(cal, None)
-            
-            cal_tmp_df = cal_data[(cal_data['cal_group'] == cal)].copy().dropna(
-               subset=[cts_diff_v, cts_diff_refnorm_v, 'NO_mr', 'cal_true_ppt'
-                       , 'Cal_NO_MFC_set', 'lsr_pwr_mW']
-            )
-            
-            avg_lsr_pwr = cal_tmp_df['lsr_pwr_mW'].mean()
-            
-            cal_tmp_df['point_filter'] = 0
-            cal_tmp_df['cal_flow_diff'] = cal_tmp_df['Cal_NO_MFC_set'].diff().abs()
-            for cal_pt in cal_tmp_df.index:
-                if (cal_tmp_df['cal_flow_diff'][cal_pt] > 0.05):
-                    cal_tmp_df.loc[cal_pt-1:cal_pt+10,'point_filter'] = 1
-            cal_tmp_df = cal_tmp_df[(cal_tmp_df['point_filter'] == 0) 
-                                    & (cal_tmp_df['cal_true_ppt'] < max_conc)]
-            if cal_tmp_df.shape[0] > 100:
-                X = cal_tmp_df['cal_true_ppt'][300:].values.reshape(-1, 1)
-                Y = cal_tmp_df['cal_sig_diff_cts_ref_norm'][300:].values.reshape(-1, 1)
-                linear_regressor = LinearRegression()
-                reg = linear_regressor.fit(X, Y)
-                Y_pred = linear_regressor.predict(X)
-                Norm_cal_dict = {}
-                Norm_cal_dict['cal_start_date_time'] = current_cal_start_time
-                Norm_cal_dict['avg_lsr_pwr'] = avg_lsr_pwr
-                Norm_cal_dict['R2'] = reg.score(X,Y)
-                Norm_cal_dict['Slope'] = reg.coef_[0,0]
-                Norm_cal_dict['Intercept'] = reg.intercept_[0]
-                Refnorm_cal_vars[cal] =  Norm_cal_dict
-                
-                Y2 = cal_tmp_df[cts_diff_v][300:].values.reshape(-1, 1)
-                linear_regressor = LinearRegression()
-                reg2 = linear_regressor.fit(X, Y2)
-                Y2_pred = linear_regressor.predict(X)
-                cal_dict = {}
-                cal_dict['cal_start_date_time'] = current_cal_start_time
-                cal_dict['avg_lsr_pwr'] = avg_lsr_pwr
-                cal_dict['R2'] = reg2.score(X,Y2)
-                cal_dict['Slope'] = reg2.coef_[0,0]
-                cal_dict['Intercept'] = reg2.intercept_[0]
-                std_cal_vars[cal] = cal_dict
-                
-                
-            if cal in Refnorm_cal_vars and cal in std_cal_vars:
-                
-                if current_cal_start_time is not None:
-                    
-                    new_data_to_append = {
-                        'cal_start_date_time': 
-                            [current_cal_start_time],
-                        'avg_lsr_pwr':
-                            [avg_lsr_pwr],
-                        'R2': 
-                            [std_cal_vars[cal]['R2']],
-                        'slope': 
-                            [std_cal_vars[cal]['Slope']],
-                        'intercept': 
-                            [std_cal_vars[cal]['Intercept']],
-                        'R2_ref_norm': 
-                            [Refnorm_cal_vars[cal]['R2']],
-                        'slope_ref_norm': 
-                            [Refnorm_cal_vars[cal]['Slope']],
-                        'intercept_ref_norm': 
-                            [Refnorm_cal_vars[cal]['Intercept']]
-                    }
-                    
-                new_data_to_append_df = pd.DataFrame(new_data_to_append)
-                
-                new_data_to_append_df.to_csv(
-                    file_path, mode='a', header=False
-                    , index=False, sep=','
+        else:
+            # Create dummy objects if not making CSV
+            writer = None
+            txtfile = None
+
+        try:
+            cts_data_cal = cts_data.copy()
+            cals = cts_data_cal.groupby('cal_number')
+
+            for cal_num, cal_df in cals:
+
+                # --- PLOTTING LOGIC START ---
+                if plot:
+                    if plot_counter % MAX_PLOTS == 0:
+                        if fig is not None:
+                            plt.tight_layout()
+                            plt.show()
+
+                        fig, ax = plt.subplots(ROWS, COLS,
+                                               figsize=(25, 12))
+                        fig.suptitle(f'Trimmed Calibration Analysis: '
+                                     f'Time-Series & Regression ({channel})',
+                                     fontsize=16)
+                        ax = ax.flatten()
+
+                    # Two plots per cal: Time-series and Regression
+                    current_ax_reg = ax[plot_counter % MAX_PLOTS]
+                    current_ax_time = ax[(plot_counter % MAX_PLOTS) + 1]
+                # --- PLOTTING LOGIC END ---
+
+                cal_df = cal_df.reset_index(drop=True).copy(deep=True)
+
+                if len(cal_df) == 0:
+                    continue
+
+                print(f'\rcal {cal_num}', end='')
+
+                cal_start_time = cal_df['Date_time'][0]
+
+                # Identify individual calibration steps (points)
+                cal_df['cal_point_switch'] = np.where(
+                    cal_df[f'Cal_{molecule}_MFC_set'] !=
+                    cal_df[f'Cal_{molecule}_MFC_set'].shift(1)
+                    , 1
+                    , 0
                     )
-                
-                
+                cal_df['cal_point'] = cal_df['cal_point_switch'].cumsum()
+                cal_points = cal_df.groupby('cal_point')
+
+                # Reset steady_state column
+                cal_df['stable_cal_point'] = False
+
+                # ==========================================================
+                # --- CORRECTED STEADY-STATE (TRIM) LOGIC ---
+                # This applies a 5% trim to the start and end of EACH cal_point
+                # ==========================================================
+                for cal_point, cal_point_df in cal_points:
+
+                    point_length = len(cal_point_df)
+
+                    # Calculate the number of points to trim (5% of length)
+                    trim_n = int(np.ceil(point_length * 0.05))
+
+                    # Check if there's enough data left (> 10% trimmed)
+                    if point_length > 2 * trim_n:
+
+                        # Get indices of the middle 90% (trimmed data)
+                        stable_cal_point_indices = cal_point_df.iloc[
+                            trim_n : point_length - trim_n].index
+
+                        # Set 'stable_cal_point' to True for these indices
+                        cal_df.loc[stable_cal_point_indices,
+                                   'stable_cal_point'] = True
+                # ==========================================================
+
+                stable_cal_point_mask = cal_df['stable_cal_point'] == True
+                cal_df_filtered = cal_df[stable_cal_point_mask].copy()
+
+                regression_cols = [f'{molecule}_mr',
+                                   f'{channel}_diff_cts_ref_norm_zero_corr']
+                cal_df_cleaned = cal_df_filtered.replace(
+                    [np.inf, -np.inf], np.nan).dropna(
+                        subset=regression_cols)
+
+                # --- Prepare data for regression ---
+                X = cal_df_cleaned[f'{molecule}_mr']
+                Y = cal_df_cleaned[f'{channel}_diff_cts_ref_norm_zero_corr']
+
+                cal_laser_power = cal_df_filtered['lsr_pwr_mW'].mean()
+
+                # Check for sufficient data points before regression
+                if len(X) < 2 or X.nunique() < 2:
+                    print(' filtered data has no points')
+                    slope, intercept, r_value, p_value, \
+                        std_err_of_slope = [np.nan] * 5
+                else:
+                    slope, intercept, r_value, p_value, \
+                        std_err_of_slope = linregress(X, Y)
+
                 if plot:
-    
-                    # --- First Plot ---
-                    # Plot on the first subplot (axs[0])
-                    axs[0, cal-1].plot(cal_tmp_df.index, cal_tmp_df[cts_diff_v])
-                    axs[0, cal-1].set_title(f'Standard cal {cal} {channel}')
-    
-                    # --- Second Plot ---
-                    # Plot on the second subplot (axs[1])
-                    axs[1,cal-1].scatter(X, Y2)
-                    axs[1,cal-1].plot(X, Y2_pred, color='red')
-                    axs[1,cal-1].set_title(f'Standard cal {cal} {channel}')
-        
-                    # --- Third Plot ---
-                    # Plot on the third subplot (axs[2])
-                    axs[2,cal-1].plot(
-                        cal_tmp_df.index, cal_tmp_df['cal_sig_diff_cts_ref_norm']
-                        )
-                    axs[2,cal-1].set_title(f'Ref norm cal {cal} {channel}')
-    
-                    # --- Fourth Plot ---
-                    # Plot on the fourth subplot (axs[3])
-                    axs[3,cal-1].scatter(X, Y)
-                    axs[3,cal-1].plot(X, Y_pred, color='red')
-                    axs[3,cal-1].set_title(f'Ref norm cal {cal} {channel}')
-        
-        # Display the combined figure
-        if plot:
-            plt.tight_layout()
-            plt.show()
-        
-        Std_cal_summary = pd.DataFrame(std_cal_vars).transpose()
-        print(f'{channel} Non ref normalised cals')
-        print(Std_cal_summary)
-        if (100*(Std_cal_summary['Slope'].std()/Std_cal_summary['Slope'].mean())) < 5:
-            print(f'{channel} Cal slope standard deviation < 5% of mean')
-        else:
-            print(f'{channel} Cal slope standard deviation greater than 5% of mean')
-    
-        Refnorm_cal_summary = pd.DataFrame(Refnorm_cal_vars).transpose()
-        print(f'{channel} Reference cell normalised cals')
-        print(Refnorm_cal_summary)
-        if (100*(Refnorm_cal_summary['Slope'].std()/Refnorm_cal_summary['Slope'].mean())) < 5:
-            print(f'{channel} Ref norm cal slope standard deviation < 5% of mean')
-        else:
-            print(f'{channel} Ref norm cal slope standard deviation greater than 5% of mean')    
-        
-def analyse_BLC_cals(all_data, data_dir, plot): 
-    
-    file_path = os.path.join(data_dir, 'BLC_cal_data.txt')
-    
-    if not os.path.exists(file_path):
-        with open(file_path, 'w', newline='') as txtfile:
-                fieldnames = ['cal_start_date_time', 'conversion_efficiency', 'BLC_V']
-                header_row = ','.join(fieldnames)
-                txtfile.write(header_row + '\n') 
-    
-    data = all_data[['sig_B_diff_cts', 'sig_B_diff_cts_ref_norm', 'Task', 'Date_time', 'BLC_0_flag', 'BLC_1_flag']].copy()
-    data.replace([np.inf, -np.inf], np.nan, inplace=True)
-    data = data.reset_index(drop=True)
-    data['BLC_Cal_sig_diff_cts_ref_norm'] = data['sig_B_diff_cts_ref_norm'].where(data['Task'] == 1)
-    data['BLC_Cal_group'] = np.nan
-    data['BLC_cal_start_time'] = pd.NaT
-    BLC_cal_num = 0
-    BLC_cal_group_start_times = {}  
-    
-    for i in data.index:
-        if (i > 0 and pd.notnull(data['BLC_Cal_sig_diff_cts_ref_norm'][i]) and pd.isnull(data['BLC_Cal_sig_diff_cts_ref_norm'][max(0, i-3000):i].mean())):
-            BLC_cal_num += 1
-            BLC_cal_group_start_times[BLC_cal_num] = data.loc[i, 'Date_time']
-        if (pd.notnull(data['BLC_Cal_sig_diff_cts_ref_norm'][i]) and pd.notnull(data['BLC_Cal_sig_diff_cts_ref_norm'][max(0, i-3010):max(0, i-100)].mean())):
-            data.loc[i, 'BLC_Cal_group'] = BLC_cal_num
-            
-    fig, axs = plt.subplots(1, BLC_cal_num, figsize=(6*BLC_cal_num, 4))
-    
-    for cal in range(1,BLC_cal_num+1):
-        
-        cal_tmp_df = data[(data['BLC_Cal_group'] == cal)].copy()#.dropna()
-        cal_tmp_df['cal_section'] = 0
-        cal_tmp_df.iloc[300:2660, cal_tmp_df.columns.get_loc('cal_section')] = 1
-        cal_tmp_df.iloc[3260:5620, cal_tmp_df.columns.get_loc('cal_section')] = 2
-        cal_tmp_df.iloc[6520:8580, cal_tmp_df.columns.get_loc('cal_section')] = 3
-        cal_tmp_df.iloc[9280:11540, cal_tmp_df.columns.get_loc('cal_section')] = 4
-        gpt_off_blc_off = cal_tmp_df['BLC_Cal_sig_diff_cts_ref_norm'].where(cal_tmp_df['cal_section'] == 1).mean()
-        gpt_off_blc_on = cal_tmp_df['BLC_Cal_sig_diff_cts_ref_norm'].where(cal_tmp_df['cal_section'] == 2).mean()
-        gpt_on_blc_off = cal_tmp_df['BLC_Cal_sig_diff_cts_ref_norm'].where(cal_tmp_df['cal_section'] == 3).mean()
-        gpt_on_blc_on = cal_tmp_df['BLC_Cal_sig_diff_cts_ref_norm'].where(cal_tmp_df['cal_section'] == 4).mean()
-        conversion_efficiency = 1- ((gpt_off_blc_on - gpt_on_blc_on)/(gpt_off_blc_off - gpt_on_blc_off))
-        print('conversion efficiency cal ' + str(cal) + ':' + str(conversion_efficiency))
+                    # ==========================================================
+                    # --- PLOT 1: TIME SERIES ---
+                    # ==========================================================
 
-        current_cal_start_time = BLC_cal_group_start_times.get(cal, None)
-        if current_cal_start_time is not None:
-                
-            new_data_to_append = {
-                    'cal_start_date_time': [current_cal_start_time],
-                    'BLC_V' : [cal_tmp_df.iloc[-1, cal_tmp_df.columns.get_loc('BLC_0_flag')]],
-                    'conversion_efficiency' : [conversion_efficiency]    
-                }
-            new_data_to_append_df = pd.DataFrame(new_data_to_append)
-            
-            new_data_to_append_df.to_csv(file_path, mode='a', header=False, index=False, sep=',')
+                    # 1. Plot all data points against time
+                    current_ax_time.plot(cal_df['Date_time'],
+                                         cal_df[f'{channel}_diff_cts_ref_norm_zero_corr'],
+                                         label='All Data', color='gray',
+                                         linewidth=1, alpha=0.5)
 
-        if plot:
+                    # 2. Highlight the steady-state regions
+                    current_ax_time.plot(
+                        cal_df_filtered['Date_time'],
+                        cal_df_filtered[f'{channel}_diff_cts_ref_norm_zero_corr'],
+                        label='Trimmed (90%)', color='firebrick',
+                        linewidth=1)
 
-            # --- First Plot ---
-            # Plot on the first subplot (axs[0])
-            axs[cal-1].plot(cal_tmp_df.index, cal_tmp_df['BLC_Cal_sig_diff_cts_ref_norm'])
-            axs[cal-1].set_title(f'BLC cal {cal}')
+                    # Formatting for Time Plot
+                    current_ax_time.set_title(
+                        f'Cal {cal_num} - Time Series (90% Trim)',
+                        fontsize=8)
+                    current_ax_time.tick_params(axis='both', which='major',
+                                                labelsize=6)
+                    current_ax_time.tick_params(axis='x', rotation=45)
+                    current_ax_time.set_ylabel('Signal (norm. cts)',
+                                               fontsize=7)
+                    current_ax_time.legend(loc='upper right', fontsize=6)
 
-            # Adjust the layout to prevent titles and labels from overlapping
-            plt.tight_layout()
-    
-    # Display the combined figure
-    plt.show()
+                    # ==========================================================
+                    # --- PLOT 2: REGRESSION ---
+                    # ==========================================================
+
+                    # 1. Plot all data points for this cal (as background)
+                    current_ax_reg.scatter(
+                        cal_df[f'{molecule}_mr'],
+                        cal_df[f'{channel}_diff_cts_ref_norm_zero_corr'],
+                        label='All Data', s=5, alpha=0.3, color='gray')
+
+                    # 2. Plot filtered (trimmed) points
+                    current_ax_reg.scatter(X, Y,
+                                           label='Trimmed Data', s=10,
+                                           color='darkslateblue')
+
+                    # 3. Plot the regression line if successful
+                    if not np.isnan(slope):
+                        x_fit = np.linspace(X.min(), X.max(), 100)
+                        y_fit = slope * x_fit + intercept
+                        current_ax_reg.plot(
+                            x_fit, y_fit,
+                            label=f'Fit (R2: {r_value**2:.2f})',
+                            color='red', linestyle='--')
+                        current_ax_reg.text(
+                            0.05, 0.95, f'Slope: {slope:.2e}',
+                            transform=current_ax_reg.transAxes,
+                            verticalalignment='top', fontsize=6)
+                    else:
+                        current_ax_reg.text(
+                            0.5, 0.5, 'Regression analysis failed',
+                            transform=current_ax_reg.transAxes,
+                            verticalalignment='center',
+                            horizontalalignment='center', color='red')
+
+                    # Formatting for Regression Plot
+                    current_ax_reg.set_title(
+                        f'Cal {cal_num} - Regression', fontsize=8)
+                    current_ax_reg.tick_params(axis='both', which='major',
+                                                labelsize=6)
+                    current_ax_reg.set_xlabel('Mixing Ratio (MR)',
+                                              fontsize=7)
+                    current_ax_reg.legend(loc='lower right', fontsize=6)
+
+                    plot_counter += 2
 
 
-
-
-
-def analyse_cals_robust(data, plot, max_conc, channels, data_dir, molecule,
-                        std_threshold=1.0, stability_window=50, 
-                        transient_points=20):
-    """
-    Analyzes calibration data with robust, dynamic detection of steady-state 
-    periods and safe flow-change transient filtering.
-    
-    Removes reliance on hardcoded index slicing (e.g., [300:]) by using 
-    signal stability statistics.
-    
-    Parameters
-    ----------
-    data : pandas.DataFrame
-        The complete dataset.
-    plot : bool
-        If True, generates and displays a plot of the time series and regression fits.
-    max_conc : float
-        The maximum true concentration (in ppt) to include in the regression.
-    channels : list of str
-        Identifiers for the measurement channels being analyzed.
-    data_dir : str
-        Directory to save the calibration results file.
-    molecule : str
-        The identifier for the analyte molecule (e.g., 'NO').
-    std_threshold : float, optional
-        The max allowed rolling standard deviation (e.g., in diff cts) 
-        for a signal segment to be considered steady-state. Default is 1.0.
-    stability_window : int, optional
-        The number of consecutive points required to confirm stability. Default is 50.
-    transient_points : int, optional
-        The number of points to filter out immediately following a 
-        significant flow change. Default is 20.
-    
-    Returns
-    -------
-    Std_cal_summary : pandas.DataFrame
-        Summary table for the standard signal regression.
-    Refnorm_cal_summary : pandas.DataFrame
-        Summary table for the ref-normalised signal regression.
-    """
-
-    def find_steady_state_start_index(series, threshold, window):
-        """Calculates the positional index where the signal enters steady-state."""
-        # Calculate the rolling standard deviation
-        rolling_std = series.rolling(window=window, min_periods=window).std()
-        
-        # Find where the rolling standard deviation drops below the threshold
-        stable_points = (rolling_std < threshold)
-        
-        # Look for the first index where 'window' consecutive points meet stability criteria
-        for idx in range(window, len(stable_points)):
-            if stable_points[idx-window:idx].all():
-                # Return the index where the stable window begins
-                return idx 
-        return 0 # If no stable state is found
-
-    for channel in channels:
-        
-        file_path = os.path.join(data_dir, f'{channel}_cal_data.txt')
-        
-        # --- File Setup ---
-        if not os.path.exists(file_path):
-            with open(file_path, 'w', newline='') as txtfile:
-                    fieldnames = ['cal_start_date_time', 'avg_lsr_pwr', 'R2'
-                                 , 'slope', 'intercept', 'R2_ref_norm'
-                                 , 'slope_ref_norm', 'intercept_ref_norm']
-                    header_row = ','.join(fieldnames)
-                    txtfile.write(header_row + '\n')    
-        
-        print(f'\nidentifying cals, {channel}')
-        
-        cts_diff_v = f'{channel}_diff_cts'
-        cts_diff_refnorm_v = f'{channel}_diff_cts_ref_norm'
-        
-        # --- Data Preparation (Column selection & initial cleaning) ---
-        cal_data = data[[cts_diff_v, cts_diff_refnorm_v, f'{molecule}_mr', 'Task'
-                         , f'Cal_{molecule}_MFC_Read', 'Cal_SB_MFC_Read', f'Cal_{molecule}_MFC_set'
-                         , 'Date_time', 'lsr_pwr_mW']].copy()
-        cal_data.replace([np.inf, -np.inf], np.nan, inplace=True)
-        cal_data = cal_data.reset_index(drop=True)
-        
-        cal_data['cal_sig_diff_cts_ref_norm'] = cal_data[cts_diff_refnorm_v].where(
-            cal_data['Task'] == 5
-            )
-        cal_data['cal_true_ppt'] = cal_data[f'{molecule}_mr'].where( # Use molecule_mr for concentration
-            (cal_data.Task == 5) & (cal_data['Cal_SB_MFC_Read'] < 0.01)
-            )
-            
-        cal_data['cal_group'] = np.nan
-        cal_data['cal_start_time'] = pd.NaT
-        cal_num = 0
-        cal_group_start_times = {}
-        tot_steps = len(cal_data.index) - 1
-        
-        # --- Calibration Group Identification (same logic as original) ---
-        for i in cal_data.index:
-            if i % 1000 == 0:
-                print('\r%.2f' % (abs(1 - (tot_steps - i) / tot_steps) * 100), end='')
-                
-            if (i > 0 and pd.notnull(cal_data['cal_true_ppt'][i]) 
-                and pd.isnull(cal_data['cal_true_ppt'][max(0, i-3000):i].mean())):
-                cal_num += 1
-                cal_group_start_times[cal_num] = cal_data.loc[i, 'Date_time']
-                cal_data.loc[i, 'cal_start_time'] = cal_data.loc[i, 'Date_time']
-            if (pd.notnull(cal_data['cal_true_ppt'][i]) 
-                and pd.notnull(cal_data['cal_true_ppt'][max(0, i-3001):max(0, i-100)].mean())):
-                cal_data.loc[i, 'cal_group'] = cal_num
-        
-        # --- Filtering for Signal Stability (Backward/Forward Mean - same logic as original) ---
-        backward_mean = cal_data['cal_true_ppt'].rolling(window=200).mean().shift(1)
-        backward_std = cal_data['cal_true_ppt'].rolling(window=200).std().shift(1)
-        forward_mean = cal_data['cal_true_ppt'][::-1].rolling(window=200).mean()[::-1]
-        mask = (forward_mean > backward_mean + backward_std/2) | \
-             (forward_mean < backward_mean - backward_std/2)
-        cal_data.loc[mask, 'cal_true_ppt'] = np.nan
-        
-        print('\nnumber of cals =', cal_num )
-
-        Refnorm_cal_vars = {}
-        std_cal_vars = {}
-        fig, axs = None, None
-        
-        if plot:
-            fig, axs = plt.subplots(4, cal_num, figsize=(6 * cal_num, 12))
-        
-        for cal in range(1,cal_num+1):
-            
-            print(f'\ranalysing cal {cal}', end='')
-            
-            current_cal_start_time = cal_group_start_times.get(cal, None)
-            
-            cal_tmp_df = cal_data[(cal_data['cal_group'] == cal)].copy().dropna(
-                subset=[cts_diff_v, cts_diff_refnorm_v, f'{molecule}_mr', 'cal_true_ppt'
-                        , f'Cal_{molecule}_MFC_set', 'lsr_pwr_mW']
-            )
-            
-            avg_lsr_pwr = cal_tmp_df['lsr_pwr_mW'].mean()
-            
-            # 🚀 ROBUST FLOW CHANGE FILTERING 🚀
-            cal_tmp_df['point_filter'] = 0
-            mfc_set_col = f'Cal_{molecule}_MFC_set'
-            cal_tmp_df['cal_flow_diff'] = cal_tmp_df[mfc_set_col].diff().abs()
-            
-            # Find original index keys where a significant setpoint change occurs
-            change_indices = cal_tmp_df[cal_tmp_df['cal_flow_diff'] > 0.05].index.tolist()
-            
-            # Create a map from original index key to positional index (iloc)
-            index_map = {idx: i for i, idx in enumerate(cal_tmp_df.index)}
-            
-            for index_key in change_indices:
-                iloc_start = index_map[index_key]
-                # Filter a window of size transient_points starting at the change point
-                iloc_end = min(iloc_start + transient_points, cal_tmp_df.shape[0])
-                
-                # Use iloc (integer location) for safe filtering
-                # get_loc('point_filter') finds the column index
-                cal_tmp_df.iloc[iloc_start:iloc_end, 
-                                cal_tmp_df.columns.get_loc('point_filter')] = 1
-                                
-            # Apply the flow filter
-            cal_tmp_df = cal_tmp_df[(cal_tmp_df['point_filter'] == 0) 
-                                    & (cal_tmp_df['cal_true_ppt'] < max_conc)]
-
-            # 🚀 DYNAMIC STEADY-STATE DETECTION & SLICING 🚀
-            
-            # Reset index to ensure find_steady_state_start_index works on positional indices
-            cal_tmp_df_reset = cal_tmp_df.reset_index(drop=True)
-            
-            steady_state_start_index = find_steady_state_start_index(
-                cal_tmp_df_reset[cts_diff_refnorm_v], # Analyze the signal to be regressed
-                std_threshold, 
-                stability_window
-            )
-
-            required_min_points = 50 
-            if (cal_tmp_df_reset.shape[0] - steady_state_start_index) > required_min_points:
-                
-                # Slicing based on the dynamic index
-                X = cal_tmp_df_reset['cal_true_ppt'][steady_state_start_index:].values.reshape(-1, 1)
-                Y = cal_tmp_df_reset['cal_sig_diff_cts_ref_norm'][steady_state_start_index:].values.reshape(-1, 1) # Ref-Normalized Signal
-                Y2 = cal_tmp_df_reset[cts_diff_v][steady_state_start_index:].values.reshape(-1, 1) # Standard Signal
-
-                # --- Ref-Normalized Regression (Y vs X) ---
-                linear_regressor = LinearRegression()
-                reg = linear_regressor.fit(X, Y)
-                Y_pred = linear_regressor.predict(X)
-                
-                Norm_cal_dict = {}
-                Norm_cal_dict['cal_start_date_time'] = current_cal_start_time
-                Norm_cal_dict['avg_lsr_pwr'] = avg_lsr_pwr
-                Norm_cal_dict['R2'] = reg.score(X,Y)
-                Norm_cal_dict['Slope'] = reg.coef_[0,0]
-                Norm_cal_dict['Intercept'] = reg.intercept_[0]
-                Refnorm_cal_vars[cal] =  Norm_cal_dict
-                
-                # --- Standard Regression (Y2 vs X) ---
-                linear_regressor = LinearRegression()
-                reg2 = linear_regressor.fit(X, Y2)
-                Y2_pred = linear_regressor.predict(X)
-                
-                cal_dict = {}
-                cal_dict['cal_start_date_time'] = current_cal_start_time
-                cal_dict['avg_lsr_pwr'] = avg_lsr_pwr
-                cal_dict['R2'] = reg2.score(X,Y2)
-                cal_dict['Slope'] = reg2.coef_[0,0]
-                cal_dict['Intercept'] = reg2.intercept_[0]
-                std_cal_vars[cal] = cal_dict
-
-                # --- Data Saving ---
-                if current_cal_start_time is not None:
-                    new_data_to_append = {
-                        'cal_start_date_time': [current_cal_start_time],
-                        'avg_lsr_pwr': [avg_lsr_pwr],
-                        'R2': [std_cal_vars[cal]['R2']],
-                        'slope': [std_cal_vars[cal]['Slope']],
-                        'intercept': [std_cal_vars[cal]['Intercept']],
-                        'R2_ref_norm': [Refnorm_cal_vars[cal]['R2']],
-                        'slope_ref_norm': [Refnorm_cal_vars[cal]['Slope']],
-                        'intercept_ref_norm': [Refnorm_cal_vars[cal]['Intercept']]
+                new_data_to_append = {
+                    'cal_number': cal_num,
+                    'cal_start_date_time': cal_start_time,
+                    'avg_lsr_pwr': cal_laser_power,
+                    'slope': slope,
+                    'intercept': intercept,
+                    'R2': r_value**2,
+                    'slope_std_err': std_err_of_slope
                     }
-                    new_data_to_append_df = pd.DataFrame(new_data_to_append)
-                    new_data_to_append_df.to_csv(file_path, mode='a', header=False, index=False, sep=',')
-                
-                if plot:
-                    # Time series plots need the full, filtered data (before SS slice)
-                    full_signal_refnorm = cal_tmp_df_reset['cal_sig_diff_cts_ref_norm'].values
-                    full_signal_std = cal_tmp_df_reset[cts_diff_v].values
 
-                    # --- First Plot: Standard Signal Time Series ---
-                    axs[0, cal-1].plot(cal_tmp_df_reset.index, full_signal_std)
-                    axs[0, cal-1].axvline(x=steady_state_start_index, color='g', linestyle='--', label='SS Start')
-                    axs[0, cal-1].set_title(f'Standard TS {cal} ({channel})')
+                if save_csv:
+                    writer.writerow(new_data_to_append)
 
-                    # --- Second Plot: Standard Regression ---
-                    axs[1,cal-1].scatter(X, Y2)
-                    axs[1,cal-1].plot(X, Y2_pred, color='red')
-                    axs[1,cal-1].set_title(f'Std Reg {cal} R2: {reg2.score(X,Y2):.3f}')
-        
-                    # --- Third Plot: Ref-Normalised Signal Time Series ---
-                    axs[2,cal-1].plot(cal_tmp_df_reset.index, full_signal_refnorm)
-                    axs[2, cal-1].axvline(x=steady_state_start_index, color='g', linestyle='--', label='SS Start')
-                    axs[2,cal-1].set_title(f'Ref Norm TS {cal} ({channel})')
+            # After the channel loop, close the file if it was opened
+            if save_csv:
+                txtfile.close()
 
-                    # --- Fourth Plot: Ref-Normalised Regression ---
-                    axs[3,cal-1].scatter(X, Y)
-                    axs[3,cal-1].plot(X, Y_pred, color='red')
-                    axs[3,cal-1].set_title(f'Ref Norm Reg {cal} R2: {reg.score(X,Y):.3f}')
-            else:
-                print(f'\nWarning: Cal {cal} in {channel} has insufficient stable points for regression.')
+        except Exception as e:
+            print(f"An error occurred for channel {channel}: {e}")
+            if save_csv and txtfile:
+                txtfile.close()
+            continue
 
-        # Display the combined figure
-        if plot:
+        # After the loop finishes, show the last partially filled figure
+        if plot and fig is not None:
+            for i in range(plot_counter % MAX_PLOTS, MAX_PLOTS):
+                ax[i].axis('off')
             plt.tight_layout()
             plt.show()
+            plot_counter = 0
+            fig = None
+            ax = None
             
-        Std_cal_summary = pd.DataFrame(std_cal_vars).transpose()
-        Refnorm_cal_summary = pd.DataFrame(Refnorm_cal_vars).transpose()
+    if plot:
+
+        # Create subplots: one row per channel
+        fig, ax = plt.subplots(len(channels), 1, 
+                               figsize=(12, len(channels) * 6))
+
+        # Ensure ax is always iterable even for a single channel
+        if len(channels) == 1:
+            ax = [ax] 
+
+        for i, channel in enumerate(channels):
+
+            file_path = os.path.join(data_dir, f'{channel}_cal_data.txt')
+            cal_data_df = pd.read_csv(file_path)
+
+            # Filter out poor regressions (R2 < 0.75) and sort by time
+            cal_df_filtered = cal_data_df[
+                cal_data_df['R2'] >= 0.75
+            ].sort_values(by='cal_start_date_time')
+
+            # Convert time column to datetime objects
+            time_data = pd.to_datetime(
+                cal_df_filtered['cal_start_date_time'])
+            
+            # --- Plotting ---
+            
+            ax[i].errorbar(
+                time_data,                           # X-axis: Time
+                cal_df_filtered['slope'],            # Y-axis: Calibration Factor
+                yerr=cal_df_filtered['slope_std_err'], # Error bars (y-uncertainty)
+                fmt='o',                             # Format: 'o' for circles (scatter)
+                capsize=3,                           # Size of the error bar caps
+                color='darkslateblue',
+                label='calculated cal factors'
+            )
+                               
+            # --- Formatting ---
+            ax[i].set_xlabel('cal start time')
+            ax[i].set_ylabel('calibration factor')
+            ax[i].set_title(f'{channel}')
+            ax[i].legend()
+
+        plt.tight_layout()
+        plt.show()
         
-        # --- Print Summaries and Slope Analysis ---
-        print(f'{channel} Non ref normalised cals')
-        print(Std_cal_summary)
-        if (Std_cal_summary['Slope'].size > 0 and 100*(Std_cal_summary['Slope'].std()/Std_cal_summary['Slope'].mean())) < 5:
-            print(f'{channel} Cal slope standard deviation < 5% of mean')
-        else:
-            print(f'{channel} Cal slope standard deviation greater than 5% of mean')
+    return
+        
+def analyse_BLC_cals(data, data_dir, plot, save_csv, BLC_cal_task): 
     
-        print(f'{channel} Reference cell normalised cals')
-        print(Refnorm_cal_summary)
-        if (Refnorm_cal_summary['Slope'].size > 0 and 100*(Refnorm_cal_summary['Slope'].std()/Refnorm_cal_summary['Slope'].mean())) < 5:
-            print(f'{channel} Ref norm cal slope standard deviation < 5% of mean')
+    print('\nsearching dataset for BLC calibration periods')
+    
+    cts_data = data[
+        ['sig_B_diff_cts_ref_norm_zero_corr', 'Task', 'Date_time'
+        , 'BLC_0_flag', 'BLC_1_flag', 'lsr_pwr_mW', 'Cal_NO_MFC_Read']
+        ].copy()
+    
+    cts_data['start_of_BLC_cal'] = np.where(
+        (cts_data['Task'] == BLC_cal_task) & 
+        (cts_data['Task'].shift(1) != BLC_cal_task)
+        , 1
+        , 0
+        )
+    
+    cal_task_mask = (cts_data['Task'] == BLC_cal_task)
+    cts_data = cts_data[cal_task_mask]
+    
+    cts_data['BLC_cal_number'] = cts_data['start_of_BLC_cal'].cumsum()
+    
+    num_BLC_cals = cts_data['BLC_cal_number'].max()
+    print(f'\n{num_BLC_cals} BLC calibrations found')
+    
+    # --- PLOTTING SETUP ---
+    if plot:
+        ROWS = 4
+        COLS = 4
+        MAX_PLOTS = ROWS * COLS
+        plot_counter = 0
+        fig = None
+        ax = None
+    # ----------------------
+    
+    fieldnames = ['cal_num', 'cal_start_date_time', 'avg_lsr_pwr'
+                   ,'BLC_0_v', 'BLC_1_v','conversion_efficiency',]
+    
+    print('\nAnalysing BLC cals:')
+    
+    if save_csv:
+        file_path = os.path.join(data_dir, 'BLC_cal_data.txt')
+        # Open the file for writing (or append if it exists)
+        txtfile = open(file_path, 'w', newline='')
+        writer = csv.DictWriter(txtfile, fieldnames=fieldnames)
+
+        writer.writeheader()
+        
+    else:
+        # Create dummy objects if not making CSV
+        writer = None
+        txtfile = None
+        
+    
+    cts_data_cal = cts_data.copy()
+    BLC_cals = cts_data_cal.groupby('BLC_cal_number')
+    
+    
+    for cal_num, cal_df in BLC_cals:
+        
+        # --- PLOTTING LOGIC START (Setup) ---
+        if plot:
+            # Check if a new figure is needed (1 plot per cal)
+            if plot_counter % MAX_PLOTS == 0:
+                if fig is not None:
+                    plt.tight_layout()
+                    plt.show()
+
+                # Create a new figure
+                fig, ax = plt.subplots(ROWS, COLS,
+                                       figsize=(25, 12))
+                fig.suptitle('BLC Calibration Analysis: Time-Series with Means',
+                             fontsize=16)
+                ax = ax.flatten()
+
+            current_ax = ax[plot_counter % MAX_PLOTS]
+        # --- PLOTTING LOGIC END (Setup) ---
+        
+        print(f'\rBLC cal {cal_num}', end='')
+        
+        cal_start_time = cal_df['Date_time'].iloc[0]
+        laser_power = cal_df['lsr_pwr_mW'].mean()
+        
+        
+        cal_df = cal_df.reset_index(drop=True)
+        cal_length = len(cal_df)
+        split_points = [
+            0
+            , np.round(0.25*cal_length)
+            , np.round(0.5*cal_length)
+            , np.round(0.75*cal_length)
+            ]
+        cal_df['split_points'] = np.where(
+            cal_df.index.isin(split_points)
+            , 1
+            , 0
+            )
+        cal_df['BLC_cal_quarter'] = cal_df['split_points'].cumsum()
+        cal_points = cal_df.groupby('BLC_cal_quarter')
+        
+        BLC_on = cal_df['BLC_cal_quarter'].isin([2, 4])
+        BLC_0_v = cal_df[BLC_on]['BLC_0_flag'].mean()
+        BLC_1_v = cal_df[BLC_on]['BLC_1_flag'].mean()
+        
+        quarter_means = []
+        quarter_data_list = []
+        
+        for cal_point, cal_point_df in cal_points:
+            
+            cal_point_df = cal_point_df.dropna(subset = ['sig_B_diff_cts_ref_norm_zero_corr'])
+            
+            point_length = len(cal_point_df)
+            trim_n = int(np.ceil(point_length * 0.1))
+                
+            stable_cal_point_indices = cal_point_df.iloc[
+                trim_n : point_length - trim_n].index
+            
+            mask = cal_point_df.index.isin(stable_cal_point_indices)
+            
+            stable_cal_point_df = cal_point_df[mask]
+            
+            average = stable_cal_point_df['sig_B_diff_cts_ref_norm_zero_corr'].mean()
+            
+            quarter_means.append(average)
+            quarter_data_list.append(stable_cal_point_df)
+            
+        result_dict = {
+            'Q1_Mean': quarter_means[0],
+            'Q2_Mean': quarter_means[1],
+            'Q3_Mean': quarter_means[2],
+            'Q4_Mean': quarter_means[3]
+            }
+        
+        denom = result_dict['Q1_Mean'] - result_dict['Q3_Mean']
+        
+        if np.isclose(denom, 0.0):
+            conversion_efficiency = np.nan
         else:
-            print(f'{channel} Ref norm cal slope standard deviation greater than 5% of mean')
+            conversion_efficiency = (
+                1 - ((result_dict['Q2_Mean']-result_dict['Q4_Mean']) / denom)
+                )
+        
+        # --- PLOTTING LOGIC CONTINUED (Drawing the Plot) ---
+        if plot:
+            # 1. Plot ALL data (background)
+            current_ax.plot(cal_df.index,
+                            cal_df['sig_B_diff_cts_ref_norm_zero_corr'],
+                            label='All Data', color='lightgray', linewidth=1)
+            
+            # 2. Plot TRIMMED data and Mean Lines
+            colors = ['darkgreen', 'darkred', 'darkgreen', 'darkred']
+            for i, df in enumerate(quarter_data_list):
+                q_mean = quarter_means[i]
+                
+                # Plot stable region trace
+                current_ax.plot(df.index,
+                                df['sig_B_diff_cts_ref_norm_zero_corr'],
+                                label=f'Q{i+1} Trimmed', linewidth=2,
+                                color=colors[i], alpha=0.8, zorder=2)
+                
+                # Plot mean line across the stable region
+                q_start = df.index.min()
+                q_end = df.index.max()
+                current_ax.hlines(q_mean, q_start, q_end,
+                                  color='black', linestyle='--', linewidth=3, zorder=3)
+                
+                # Add mean value label
+                current_ax.text(q_start + (q_end - q_start)/2, q_mean, f'{q_mean:.4f}',
+                                fontsize=6, ha='center', va='bottom', backgroundcolor='white')
+                
+                
+            # 3. Add Conversion Efficiency as Text
+            formatted_start_time = cal_start_time.strftime('%Y-%m-%d %H:%M')
+            title_text = f"Cal {cal_num} | {formatted_start_time} | Eff: {conversion_efficiency:.3f} | Pwr: {laser_power:.2f} mW"
+            current_ax.set_title(title_text, fontsize=8)
+            
+            # Formatting
+            current_ax.tick_params(axis='both', which='major', labelsize=6)
+            current_ax.set_xlabel('Index Point', fontsize=7)
+            current_ax.set_ylabel('Signal (norm. cts)', fontsize=7)
+            
+            
+            # Use specific colors for the BLC on/off status if helpful
+            # BLC_0_V / BLC_1_V are means, assuming they correspond to the status in the cal
+            
+            current_ax.text(0.95, 0.85, f'BLC 0: {BLC_0_v: .1f}V', transform=current_ax.transAxes, 
+                            fontsize=7, color='blue', ha='right')
+            current_ax.text(0.95, 0.75, f'BLC 1: {BLC_1_v: .1f}V', transform=current_ax.transAxes, 
+                            fontsize=7, color='blue', ha='right')
+            
+            current_ax.tick_params(axis='x', rotation=0)
 
-    return Std_cal_summary, Refnorm_cal_summary
+            plot_counter += 1
+        # --- PLOTTING LOGIC END (Drawing the Plot) ---
+        
+        
+        csv_row = {
+            'cal_num': cal_num,
+            'cal_start_date_time': cal_start_time,
+            'avg_lsr_pwr': laser_power,
+            'BLC_0_v': BLC_0_v,
+            'BLC_1_v': BLC_1_v,
+            'conversion_efficiency': conversion_efficiency
+            }
+        
+        if save_csv:
+            writer.writerow(csv_row)
+        
+    if save_csv:
+        txtfile.close()
+        
+    # --- PLOT CLEANUP AFTER LOOP ---
+    if plot and fig is not None:
+        # Turn off any unused subplots
+        for i in range(plot_counter % MAX_PLOTS, MAX_PLOTS):
+            ax[i].axis('off')
+        plt.tight_layout()
+        plt.show()
+    
+def apply_cals_average(data_dir, data, channels, BLC):
+    
+    data_MRs = data.copy()
+    # Create subplots: one row per channel
+    fig, ax = plt.subplots(len(channels), 1, 
+                           figsize=(12, len(channels) * 6))
+    
+    # Ensure ax is always iterable even for a single channel
+    if len(channels) == 1:
+        ax = [ax]
+    
+    for i, (channel, molecule) in enumerate(channels.items()):
+
+        file_path = os.path.join(data_dir, f'{channel}_cal_data.txt')
+        cal_data_df = pd.read_csv(file_path)
+
+        # Filter out poor regressions (R2 < 0.75) and sort by time
+        cal_df_filtered = cal_data_df[
+            cal_data_df['R2'] >= 0.75
+        ].sort_values(by='cal_start_date_time')
+        
+        avg_cal_factor = cal_df_filtered['slope'].mean()
+        
+        data_MRs[f'{channel}_cal_factor'] = avg_cal_factor
+        
+        data_MRs[f'amb_{molecule}_ppt'] = np.where(
+            (data_MRs['Task'] == 0) & (data_MRs['Peak_find_flag'] == 0)
+            , data_MRs[f'{channel}_diff_cts_ref_norm_zero_corr'] / data_MRs[f'{channel}_cal_factor']
+            , np.nan
+            )
+    
+        # Convert time column to datetime objects
+        time_data = pd.to_datetime(
+            cal_df_filtered['cal_start_date_time'])
+        
+        # --- Plotting ---
+        
+        ax[i].errorbar(
+            time_data,                              # X-axis: Time
+            cal_df_filtered['slope'],               # Y-axis: Calibration Factor
+            yerr=cal_df_filtered['slope_std_err'],  # Error bars (y-uncertainty)
+            fmt='o',                                # Format: 'o' for circles (scatter)
+            capsize=3,                              # Size of the error bar caps
+            color='darkslateblue',
+            label='calculated cal factors'
+        )
+        ax[i].plot(
+            data_MRs['Date_time'],
+            data_MRs[f'{channel}_cal_factor'],
+            color='firebrick'
+            )
+                           
+        # --- Formatting ---
+        ax[i].set_xlabel('cal start time')
+        ax[i].set_ylabel('calibration factor')
+        ax[i].set_title(f'{channel}')
+        ax[i].legend()
+    
+    plt.tight_layout()
+    plt.show()
+        
+    if BLC:
+        
+        BLC_data = pd.read_csv(os.path.join(data_dir, 'BLC_cal_data.txt'))
+        mask_1V = (BLC_data['BLC_0_v'] >= 0.9) & (BLC_data['BLC_1_v'] >= 0.9)
+        BLC_data_1V = BLC_data[mask_1V]
+        
+        avg_conv_eff = BLC_data_1V['conversion_efficiency'].mean()
+        print(f'average conversion efficiency: {avg_conv_eff}')
+        data_MRs['conv_eff'] = avg_conv_eff
+        
+        data_MRs['amb_NO2_ppt'] = (data_MRs['amb_NO2_ppt'] - data_MRs['amb_NO_ppt']) / data_MRs['conv_eff']
+        
+        data_MRs['amb_NO2_ppt'] = np.where(
+            (data_MRs['BLC_0_flag'] >= 0.9) & (data_MRs['BLC_1_flag'] >= 0.9),
+            data_MRs['amb_NO2_ppt'],
+            np.nan
+            )
+        
+        fig, ax = plt.subplots(figsize=(12,6))
+        
+        time_BLC_data = pd.to_datetime(BLC_data_1V['cal_start_date_time'])
+        
+        ax.plot(
+            time_BLC_data
+            , BLC_data_1V['conversion_efficiency']
+            , color='darkslateblue'
+            , linestyle=''
+            , marker='o'
+            , label='calculated conversion efficiencies'
+            )
+        
+        ax.plot(
+            data_MRs['Date_time'],
+            data_MRs['conv_eff'],
+            color='firebrick'
+            )
+        
+        ax.set_xlabel('cal start time')
+        ax.set_ylabel('conversion efficiency')
+        
+        ax.legend()
+        plt.show()
+        
+    columns_to_keep = ['Date_time'] + [f'amb_{value}_ppt' for value in channels.values()]
+    data_MRs = data_MRs[columns_to_keep].copy()
+    
+    return data_MRs
+
+def resample_data(data, averaging):
+    
+    resample_data = data.copy()
+    resample_data = resample_data.set_index('Date_time')
+    resample_data = resample_data.resample(averaging).mean()
+    resample_data = resample_data.reset_index()
+    
+    return resample_data
+
+def save_to_csv(data_dir, filename, data):
+    
+    file_path = os.path.join(data_dir, f'{filename}.txt')
+    data.to_csv(file_path, mode='w', header=True, index=False, sep=',') 
+    
+
+"""
+This section contains functions which are specific to certain campaigns or 
+setups but which aren't needed more generally.
+
+"""
+
+def CARES_NO_ref_correction(data):
+    print('\n\ncorrecting ref counts due to CARES saturation issue')
+    
+    cts_data = data.copy()
+    
+    epsilon = 1e-10  # A very small number close to zero
+
+    limit = 90549
+    log_arg = 1 - (cts_data['ref_diff_cts'] / limit)
+
+    # Clip the argument for the logarithm calculation 
+    # This forces all values slightly above zero, preventing a runtime warning.
+    log_arg_clipped = np.clip(log_arg, a_min=epsilon, a_max=None)
+
+    # Calculate the raw result using the clipped data
+    result_raw = (182735 * (-np.log(log_arg_clipped) / 2.02)) 
+
+    cts_data['ref_diff_cts'] = np.where(
+        log_arg > 0,
+        result_raw,
+        np.nan
+    )
+    cts_data['ref_diff_cts_norm'] = (cts_data['ref_diff_cts']/cts_data['lsr_pwr_mW'])
+    
+    return cts_data
+
+def CARES_NO_plot_data(data_dir, filename):
+    
+    print("Loading NOx data...")
+    try:
+        nox_file = os.path.join(data_dir, f'{filename}.txt')
+        NOx_data = pd.read_csv(nox_file)
+        # Convert 'Date_time' to datetime objects and floor to the minute
+        NOx_data['Date_time'] = (
+            pd.to_datetime(NOx_data['Date_time']).dt.floor('min')
+        )
+    except FileNotFoundError:
+        print(
+            f"Error: NOx file not found in {data_dir}. "
+            "Please check the path and filename."
+        )
+        raise
+
+    # --- 3. Load and Preprocess Baseline Data (Crucial for filtering) ---
+    print("Loading and processing Baseline data...")
+    try:
+        baseline_file = os.path.join(data_dir, 'MH_G_baseComb2_2025.txt')
+        baseline_data = pd.read_csv(
+            baseline_file, sep=r'\s+', header=6, engine='python'
+        )
+        
+        # Coerce time columns to integer, filling NaNs with 0
+        for col in ['YY', 'MM', 'DD', 'HH', 'Mn']:
+            baseline_data[col] = baseline_data[col].fillna(0).astype(int)
+        
+        # Create combined datetime string
+        datetime_string_series = (
+            baseline_data['YY'].astype(str) + '/' +
+            baseline_data['MM'].astype(str) + '/' +
+            baseline_data['DD'].astype(str) + ' ' +
+            baseline_data['HH'].astype(str) + ':' +
+            baseline_data['Mn'].astype(str)
+        )
+        # Convert to datetime objects
+        baseline_data['Date_time'] = pd.to_datetime(
+            datetime_string_series, errors='coerce'
+        )
+        
+        # Upsample the baseline 'B' flag to minute resolution using forward fill
+        baseline_data = baseline_data.set_index('Date_time')
+        baseline_data_upsampled = baseline_data['B'].resample('min').ffill()
+        baseline_data_upsampled = baseline_data_upsampled.reset_index()
+
+    except FileNotFoundError:
+        print(f"Error: Baseline file not found in {data_dir}.")
+        raise
+
+    # --- 4. Merge DataFrames and Apply Baseline Filter (B=10) ---
+    print("Merging data and applying baseline filter...")
+    NOx_data = pd.merge(NOx_data, baseline_data_upsampled, 
+                        on='Date_time', how='left')
+
+    # Filter for baseline conditions where 'B' is exactly 10, otherwise NaN
+    NOx_data['clean_NO'] = np.where(
+        NOx_data['B'] == 10, 
+        NOx_data['amb_NO_ppt'], 
+        np.nan
+    )
+    NOx_data['clean_NO2'] = np.where(
+        NOx_data['B'] == 10, 
+        NOx_data['amb_NO2_ppt'], 
+        np.nan
+    )
+
+    # --- 4.5. Outlier/Spike Removal using IQR Method (3.0 * IQR) ---
+    print("Removing obvious spikes using 3.0 * IQR filter...")
+
+    def iqr_outlier_filter(series, iqr_factor=3.0):
+        """Removes outliers using the Interquartile Range (IQR) method."""
+        series_clean = series.dropna()
+        if len(series_clean) < 2:
+            # Not enough data to calculate IQR, return original series
+            return series
+            
+        Q1 = series_clean.quantile(0.25)
+        Q3 = series_clean.quantile(0.75)
+        IQR = Q3 - Q1
+        # Handle case where IQR is zero to prevent issues
+        if IQR == 0:
+            return series
+            
+        upper_bound = Q3 + iqr_factor * IQR
+        lower_bound = Q1 - iqr_factor * IQR
+        # Retain data only within the bounds, set outliers to NaN
+        return series.where(
+            (series >= lower_bound) & (series <= upper_bound), np.nan
+        )
+
+    # Apply filtering to the clean columns
+    NOx_data['clean_NO'] = iqr_outlier_filter(NOx_data['clean_NO'])
+    NOx_data['clean_NO2'] = iqr_outlier_filter(NOx_data['clean_NO2'])
 
 
+    # --- 5. Resample, Aggregate, and Calculate Diurnal Medians and IQR ---
+    print("Calculating 60-minute means, diurnal medians, and IQR...")
+    # Set index and resample to 60-minute intervals
+    NOx_data = NOx_data.set_index('Date_time')
 
-#def gen_MRs():
-    #load data
-    #ref normalise
-    #flag
-    #zero correct
-    #analyse cals
-    #analyse blc cals
-    #apply all cal factors
-    #save new files with MRs in 
+    # Step 1: Calculate the mean concentration for every 60-minute block.
+    NOx_data_60min_means = NOx_data[
+        ['clean_NO', 'clean_NO2']
+    ].resample('60 min').mean()
+
+    # Step 2: Group the 60-minute means by time of day and calculate stats
+    diurnal_df = NOx_data_60min_means.groupby(
+        NOx_data_60min_means.index.time
+    ).agg(
+        [
+            'median',
+            ('q25', lambda x: x.quantile(0.25)),
+            ('q75', lambda x: x.quantile(0.75))
+        ]
+    )
+
+    # Rename columns for easier access
+    diurnal_df.columns = ['_'.join(col).strip() for col in diurnal_df.columns.values]
+
+    diurnal_df = diurnal_df.reset_index()
+    diurnal_df = diurnal_df.rename(columns={'index': 'time'})
+
+    # Create a time_delta column for plotting on a continuous axis
+    diurnal_df['time_delta'] = diurnal_df['time'].apply(
+        lambda t: (
+            pd.to_timedelta(t.hour, unit='h') + 
+            pd.to_timedelta(t.minute, unit='m') + 
+            pd.to_timedelta(t.second, unit='s')
+        )
+    )
+
+    # Convert time_delta to total hours (float) for numerical plotting
+    diurnal_df['time_hours'] = (
+        diurnal_df['time_delta'].dt.total_seconds() / 3600.0
+    )
 
 
+    # --- 6. Plotting the Diurnal Cycles with IQR Shading ---
+    print("Generating separate plots for NO and NO2 with IQR shading (Diurnal Cycle)...")
 
+    # Create a figure with two subplots, stacked vertically (2 rows, 1 column)
+    fig_diurnal, ax_diurnal = plt.subplots(
+        2, 1, figsize=(7, 8), sharex=True
+    ) 
+
+    # --- Common Variables for Plotting ---
+    x_data = diurnal_df['time_hours']
+
+    # --- Plot 1: Clean NO (Median and IQR Shading) ---
+    median_no = diurnal_df['clean_NO_median']
+    q25_no = diurnal_df['clean_NO_q25']
+    q75_no = diurnal_df['clean_NO_q75']
+
+    # Plot the median line
+    ax_diurnal[0].plot(x_data, median_no, 
+                       label='Median Clean NO', 
+                       color='#4f46e5', 
+                       linewidth=2)
+
+    # Add the shading (IQR) using plt.fill_between
+    ax_diurnal[0].fill_between(x_data, q25_no, q75_no, 
+                               color='#4f46e5', 
+                               alpha=0.3, 
+                               label='IQR (25th to 75th Percentile)')
+
+    ax_diurnal[0].set_ylabel('Median NO Concentration (ppt)', fontsize=12)
+    ax_diurnal[0].set_title(
+        'Diurnal Cycle of Clean NO at Mace Head (Median and IQR)', 
+        fontsize=14, 
+        fontweight='bold'
+    )
+    ax_diurnal[0].legend(
+        frameon=True, shadow=True, fancybox=True, fontsize=10
+    )
+    ax_diurnal[0].set_xlim(0, 24)
+
+    # --- Plot 2: Clean NO2 (Median and IQR Shading) ---
+    median_no2 = diurnal_df['clean_NO2_median']
+    q25_no2 = diurnal_df['clean_NO2_q25']
+    q75_no2 = diurnal_df['clean_NO2_q75']
+
+    # Plot the median line
+    ax_diurnal[1].plot(x_data, median_no2, 
+                       label='Median Clean $\\text{NO}_2$', 
+                       color='#dc2626', 
+                       linestyle='-', 
+                       linewidth=2)
+
+    # Add the shading (IQR) using plt.fill_between
+    ax_diurnal[1].fill_between(x_data, q25_no2, q75_no2, 
+                               color='#dc2626', 
+                               alpha=0.3, 
+                               label='IQR (25th to 75th Percentile)')
+
+    ax_diurnal[1].set_ylabel(
+        'Median $\\text{NO}_2$ Concentration (ppt)', fontsize=12
+    )
+    ax_diurnal[1].set_title(
+        'Diurnal Cycle of Clean NO\u2082 at Mace Head (Median and IQR)', 
+        fontsize=14, 
+        fontweight='bold'
+    )
+    ax_diurnal[1].legend(
+        frameon=True, shadow=True, fancybox=True, fontsize=10
+    )
+    ax_diurnal[1].set_xlim(0, 24)
+
+
+    # Formatting the X-axis (shared for both plots)
+    hours_in_day_ticks = np.arange(0, 24, 3)
+    ax_diurnal[1].set_xticks(hours_in_day_ticks)
+    ax_diurnal[1].set_xticklabels([f'{h:02d}:00' for h in hours_in_day_ticks])
+    ax_diurnal[1].set_xlabel('Time of Day (UTC)', fontsize=12)
+
+    fig_diurnal.tight_layout() # Adjust layout to prevent overlapping elements
+
+
+    # --- 7. Plotting the Full Time Series Data (Clean vs. Unclean) ---
+    print("Generating full time series plots (60-min means) showing clean "
+          "and other data...")
+
+    # 'Other' data is where the B flag is NOT 10
+    NOx_data['other_NO'] = np.where(
+        NOx_data['B'] != 10, 
+        NOx_data['amb_NO_ppt'], 
+        np.nan
+    )
+    NOx_data['other_NO2'] = np.where(
+        NOx_data['B'] != 10, 
+        NOx_data['amb_NO2_ppt'], 
+        np.nan
+    )
+
+    # Resample all plotting columns to 60-minute means
+    plot_data_60min = NOx_data[
+        ['clean_NO', 'clean_NO2', 'other_NO', 'other_NO2']
+    ].resample('60 min').mean()
+
+
+    # Create a second figure for the time series
+    fig_timeseries, ax_timeseries = plt.subplots(
+        2, 1, figsize=(15, 8), sharex=True
+    )
+
+    # --- Plot 1: NO Concentration ---
+    # Plot Clean NO (Emerald Green)
+    ax_timeseries[0].plot(plot_data_60min.index, 
+                          plot_data_60min['clean_NO'], 
+                          color='#10b981', 
+                          linewidth=1.5, 
+                          label='Clean NO (B=10)') 
+    # Plot Other NO (Red)
+    ax_timeseries[0].plot(plot_data_60min.index, 
+                          plot_data_60min['other_NO'], 
+                          color='#ef4444', 
+                          linewidth=1.5, 
+                          label='Other Data (B \u2260 10)') 
+
+    ax_timeseries[0].set_title(
+        'Full Time Series of NO Concentration at Mace Head (60-min Mean)', 
+        fontsize=14, 
+        fontweight='bold'
+    )
+    ax_timeseries[0].set_ylabel('NO Concentration (ppt)', fontsize=12)
+    ax_timeseries[0].legend(loc='upper right')
+    ax_timeseries[0].grid(True, linestyle=':', alpha=0.6)
+
+
+    # --- Plot 2: NO2 Concentration ---
+    # Plot Clean NO2 (Emerald Green)
+    ax_timeseries[1].plot(plot_data_60min.index, 
+                          plot_data_60min['clean_NO2'], 
+                          color='#10b981', 
+                          linewidth=1.5, 
+                          label='Clean $\\text{NO}_2$ (B=10)')
+    # Plot Other NO2 (Red)
+    ax_timeseries[1].plot(plot_data_60min.index, 
+                          plot_data_60min['other_NO2'], 
+                          color='#ef4444', 
+                          linewidth=1.5, 
+                          label='Other Data (B \u2260 10)')
+
+    ax_timeseries[1].set_title(
+        'Full Time Series of $\\text{NO}_2$ Concentration at Mace Head (60-min Mean)', 
+        fontsize=14, 
+        fontweight='bold'
+    )
+    ax_timeseries[1].set_ylabel(
+        '$\\text{NO}_2$ Concentration (ppt)', fontsize=12
+    )
+    ax_timeseries[1].legend(loc='upper right')
+    ax_timeseries[1].grid(True, linestyle=':', alpha=0.6)
+
+
+    # Formatting the X-axis (shared for both plots)
+    # Use a formatter for month and year visibility
+    date_form = DateFormatter("%Y-%m")
+    ax_timeseries[1].xaxis.set_major_formatter(date_form)
+    ax_timeseries[1].xaxis.set_major_locator(MonthLocator(interval=2))
+    ax_timeseries[1].set_xlabel('Date (Year-Month)', fontsize=12)
+
+    fig_timeseries.tight_layout() # Adjust layout for the second figure
+
+    plt.show() # Display both figures
+
+    print("All plots generated successfully: Diurnal cycle (Median and IQR) and "
+          "full campaign Time Series (60-min mean) showing clean vs. other data.")

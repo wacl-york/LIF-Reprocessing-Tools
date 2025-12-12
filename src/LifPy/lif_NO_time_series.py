@@ -24,7 +24,7 @@ pre_peakfind = 20    # data points before ref_cts_diff drop to ignore
 post_peakfind = 200    # data points after ref_cts_diff drop to ignore
 no_cylinder_conc = 5000
 data_dir = ('C:\\Users\\pp835\\OneDrive - University of York\\Documents\\'
-        'Data Analysis\\CARES\\Mace Head Binary Data Analysis\\Data'
+        'Data Analysis\\CARES\\Mace Head Full Data Analysis\\Data'
         )
 day_folders = lif.find_day_folders(data_dir)
 
