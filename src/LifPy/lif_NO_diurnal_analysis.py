@@ -3,11 +3,13 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 from matplotlib.dates import DateFormatter, MonthLocator
-
+data_dir = ('C:/Users/pp835/OneDrive - University of York/Documents/'
+            'Data Analysis/CARES/Mace Head Full Data Analysis/Data'
+            )
 
 print("Loading NOx data...")
 try:
-    nox_file = os.path.join(data_dir, 'file_save_test_data.txt')
+    nox_file = os.path.join(data_dir, 'NOx_CARES_MaceHead_prelim_20251217.txt')
     NOx_data = pd.read_csv(nox_file)
     # Convert 'Date_time' to datetime objects and floor to the minute
     NOx_data['Date_time'] = (

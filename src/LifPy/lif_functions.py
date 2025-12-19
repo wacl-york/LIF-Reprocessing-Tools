@@ -9,8 +9,10 @@ import numpy as np
 import pandas as pd
 
 from itertools import islice
-from matplotlib.dates import DateFormatter, MonthLocator
-from scipy.stats import linregress
+from matplotlib.dates import DateFormatter
+from numpy.lib.stride_tricks import sliding_window_view
+from scipy.interpolate import interp1d
+from scipy.odr import ODR, Model, RealData
 
 from datetime import datetime as dt
 
@@ -281,7 +283,7 @@ def import_HK_data(data_dir, day_folders):
             print(f'\r{file}', end='')
             
             file_path = os.path.join(HK_dir, file)
-            file_data = pd.read_csv(file_path, delimiter=r'\s+', header=0)
+            file_data = pd.read_csv(file_path, delimiter=r'\s+', header=0, engine='python')
     
             for header in list(file_data):
                 
@@ -1472,7 +1474,7 @@ interpretation of counts data to give mixing ratios.
 
 """
 
-def read_processed_files(data_dir, day_folders):
+def read_processed_files(data_dir, day_folders, start_date_time=None, end_date_time=None):
     """
     Reads, concatenates, and cleans all processed data files (.txt) generated
     by the processing pipeline within the specified day folders.
@@ -1556,6 +1558,13 @@ def read_processed_files(data_dir, day_folders):
                             - pd.to_timedelta(2082844800, unit='s'))
     cts_data['Date_time'] = pd.to_datetime(cts_data['Date_time'])
     cts_data = cts_data.sort_values(by='Date_time')
+    
+    if not pd.isna(start_date_time):
+        start_mask = cts_data['Date_time'] > pd.to_datetime(start_date_time)
+        cts_data = cts_data[start_mask]
+    if not pd.isna(end_date_time):
+        end_mask = cts_data['Date_time'] < pd.to_datetime(end_date_time)
+        cts_data = cts_data[end_mask]
 
     return cts_data
 
@@ -1669,7 +1678,7 @@ def set_flags(data, pre_TS, post_TS, pre_PF, post_PF, ref_cts_limit):
             
     data['Task'] = task_array
     
-    data.index = data['Date_time']
+    #data = data.set_index('Date_time', drop=True)
     data = data.drop(columns=['Task_Change'])
     
     return data
@@ -1800,6 +1809,101 @@ def zero_correct_average(data, channels, plot=False):
 
     return data   
 
+def zero_correct_interpolate(data, channels, plot=False):
+    """
+    Applies an interpolated zero-offset correction to the count data.
+    The correction is calculated by interpolating between the means of 
+    individual zeroing periods (Task 4) over time.
+    """
+    
+    print('\nCalculating interpolated zero correction')
+    
+    # 1. Identify and group zero periods
+    cts_data_zero = data.copy()
+    # Logic to identify discrete blocks of Task 4
+    start_of_zero = (cts_data_zero['Task'] == 4) & (cts_data_zero['Task'].shift(1) != 4)
+    cts_data_zero['zero_number'] = start_of_zero.cumsum()
+    
+    # Filter for valid zeroing data
+    cts_data_zero = cts_data_zero[(cts_data_zero['Task'] == 4) & (cts_data_zero['Peak_find_flag'] == 0)]
+    grouped_zeros = cts_data_zero.groupby('zero_number')
+    
+    # Optional sig_B specific filtering
+    if 'sig_B' in channels:
+        cts_data_zero['sig_B_diff_cts_ref_norm'] = np.where(
+            (cts_data_zero['BLC_0_flag'] == 1.0) & (cts_data_zero['BLC_1_flag'] == 1.0),
+            cts_data_zero['sig_B_diff_cts_ref_norm'],
+            np.nan
+        )
+    
+    # Convert Date_time to numeric for interpolation (seconds since start)
+    data_times_numeric = pd.to_numeric(data['Date_time'])
+
+    for channel in channels:
+        column_name = f'{channel}_diff_cts_ref_norm'
+        
+        # 2. Calculate stats for each zero period
+        zero_stats = grouped_zeros.agg({
+            column_name: ['mean', 'std', 'count'],
+            'Date_time': 'mean'
+        }).dropna()
+        
+        zero_stats.columns = ['_'.join(col).strip() for col in zero_stats.columns.values]
+        zero_stats = zero_stats.rename(columns={'Date_time_mean': 'zero_midpoint'})
+        
+        # 3. Apply 3-sigma spike filter to the period means
+        m_zero = zero_stats[f'{column_name}_mean'].mean()
+        s_zero = zero_stats[f'{column_name}_mean'].std()
+        spike_mask = (zero_stats[f'{column_name}_mean'] > (m_zero - 3*s_zero)) & \
+                     (zero_stats[f'{column_name}_mean'] < (m_zero + 3*s_zero))
+        
+        filtered_stats = zero_stats[spike_mask].copy()
+        
+        # 4. Create Interpolation Function
+        # We convert the midpoints to numeric to match the main dataframe's time format
+        x_points = pd.to_numeric(filtered_stats['zero_midpoint'])
+        y_points = filtered_stats[f'{column_name}_mean']
+        
+        if len(x_points) < 2:
+            print(f"Warning: Not enough zero periods for {channel} interpolation. Using global mean.")
+            interp_func = lambda x: np.full_like(x, y_points.mean() if not y_points.empty else 0)
+        else:
+            # Linear interpolation with extrapolation
+            interp_func = interp1d(x_points, y_points, kind='linear', fill_value="extrapolate")
+        
+        # 5. Apply correction
+        data[f'{channel}_zero_offset'] = interp_func(data_times_numeric)
+        data[f'{channel}_diff_cts_ref_norm_zero_corr'] = data[column_name] - data[f'{channel}_zero_offset']
+        
+        print(f'Interpolated zero correction applied to {channel}')
+        
+        if plot:
+            fig, ax = plt.subplots(2, 1, figsize=(12, 8), sharex=False)
+            
+            # Plot 1: The Drift and Correction Line
+            ax[0].errorbar(zero_stats['zero_midpoint'], zero_stats[f'{column_name}_mean'], 
+                           yerr=zero_stats[f'{column_name}_std'], fmt='o', color='gray', 
+                           alpha=0.5, label='Raw Zero Means')
+            
+            ax[0].scatter(filtered_stats['zero_midpoint'], filtered_stats[f'{column_name}_mean'], 
+                          color='red', s=10, label='Filtered Zero Means', zorder=5)
+            
+            ax[0].plot(data['Date_time'], data[f'{channel}_zero_offset'], 
+                       color='blue', label='Interpolated Correction (Drift)')
+            
+            ax[0].set_title(f'{channel} Zero Drift Correction')
+            ax[0].legend()
+            
+            # Plot 2: Histogram of corrected vs uncorrected (at zero periods)
+            ax[1].hist(filtered_stats[f'{column_name}_mean'], bins=30, alpha=0.5, label='Original Means')
+            ax[1].set_xlabel('Counts')
+            ax[1].legend()
+            
+            plt.tight_layout()
+            plt.show()
+
+    return data
+
 def analyse_cals(data, data_dir, channels, molecule, cal_cylinder_conc
                  , plot, save_csv, cal_task):
 
@@ -1853,7 +1957,7 @@ def analyse_cals(data, data_dir, channels, molecule, cal_cylinder_conc
     # ----------------------
 
     fieldnames = ['cal_number', 'cal_start_date_time', 'avg_lsr_pwr', 'slope',
-                  'intercept', 'R2', 'slope_std_err']
+                  'intercept', 'R2', 'reduced_chi_squared', 'slope_std_err']
 
     for channel in channels:
 
@@ -1944,6 +2048,8 @@ def analyse_cals(data, data_dir, channels, molecule, cal_cylinder_conc
 
                 stable_cal_point_mask = cal_df['stable_cal_point'] == True
                 cal_df_filtered = cal_df[stable_cal_point_mask].copy()
+                
+                cal_laser_power = cal_df_filtered['lsr_pwr_mW'].mean()
 
                 regression_cols = [f'{molecule}_mr',
                                    f'{channel}_diff_cts_ref_norm_zero_corr']
@@ -1954,17 +2060,89 @@ def analyse_cals(data, data_dir, channels, molecule, cal_cylinder_conc
                 # --- Prepare data for regression ---
                 X = cal_df_cleaned[f'{molecule}_mr']
                 Y = cal_df_cleaned[f'{channel}_diff_cts_ref_norm_zero_corr']
+                
+                if len(cal_df_filtered) > 1:
+                    
+                    # 1. Group the filtered data by the individual stable calibration steps
+                    cal_points_filtered = cal_df_filtered.groupby('cal_point')
 
-                cal_laser_power = cal_df_filtered['lsr_pwr_mW'].mean()
+                    # 2. Calculate the standard deviation (noise) for X and Y in each stable point
+                    point_stds = cal_points_filtered.agg({
+                        f'{molecule}_mr': 'std', 
+                        f'{channel}_diff_cts_ref_norm_zero_corr': 'std' 
+                    }).rename(columns={
+                        f'{molecule}_mr': 'sigma_X_point',
+                        f'{channel}_diff_cts_ref_norm_zero_corr': 'sigma_Y_point'
+                    }).dropna() # Drop points that had too few data points to calculate std
 
-                # Check for sufficient data points before regression
+                    # 3. Determine the overall representative noise (using the Median)
+                    sx_auto = point_stds['sigma_X_point'].median()
+                    sy_auto = point_stds['sigma_Y_point'].median()
+                    
+                    # 4. Fallback and Final Safety Check
+                    # Use the median if available, otherwise fall back to overall std dev of the filtered data
+                    # Ensure the value is not zero to prevent ODR solver errors
+                    sx_final = max(sx_auto if not np.isnan(sx_auto) else cal_df_filtered[f'{molecule}_mr'].std(), 1e-12)
+                    sy_final = max(sy_auto if not np.isnan(sy_auto) else cal_df_filtered[f'{channel}_diff_cts_ref_norm_zero_corr'].std(), 1e-12)
+
+                else:
+                    # Default values if not enough data to calculate stats
+                    sx_final = 1e-12
+                    sy_final = 1e-12
+                        
+                        
+                def linear_model(p, x):
+                    """
+                    Linear function for ODR: y = m*x + c
+                    p is the array of parameters [m (slope), c (intercept)]
+                    x is the independent variable (MR supplied by MFC)
+                    """
+                    m, c = p
+                    return m*x + c
+                
                 if len(X) < 2 or X.nunique() < 2:
                     print(' filtered data has no points')
                     slope, intercept, r_value, p_value, \
                         std_err_of_slope = [np.nan] * 5
+                
                 else:
-                    slope, intercept, r_value, p_value, \
-                        std_err_of_slope = linregress(X, Y)
+                    # define ODR model based on linear function
+                    linear_model_odr = Model(linear_model)   
+                    
+                    # Define the data, including errors (often estimated as 1.0 if unknown)
+                    data_odr = RealData(
+                        X, Y, 
+                        sx=sx_final, # Estimate of standard deviation/error in X (MR)
+                        sy=sy_final  # Estimate of standard deviation/error in Y (Signal Counts)
+                    )
+                    
+                    # Instantiate the ODR solver
+                    # beta0 = initial guess for [slope, intercept]. Using [1, 0] is a good start.
+                    odr = ODR(data_odr, linear_model_odr, beta0=[1.0, 0.0])     
+                    
+                    # Run the regression
+                    output = odr.run()
+                    
+                    # Extract results
+                    slope = output.beta[0]
+                    intercept = output.beta[1]
+                    std_err_of_slope = output.sd_beta[0]   
+                    red_chi_sq = output.res_var
+                    
+                    # --- CALCULATE R2 MANUALLY ---
+                
+                    Y_fit = slope * X + intercept
+                    SSR_unweighted = np.sum((Y - Y_fit)**2)
+                    Y_mean = Y.mean()
+                    SST_manual = np.sum((Y - Y_mean)**2)
+                    
+                    if SST_manual != 0:
+                        R2 = 1 - (SSR_unweighted / SST_manual)
+                    else:
+                        R2 = np.nan
+                    
+                        
+                
 
                 if plot:
                     # ==========================================================
@@ -2016,12 +2194,13 @@ def analyse_cals(data, data_dir, channels, molecule, cal_cylinder_conc
                         y_fit = slope * x_fit + intercept
                         current_ax_reg.plot(
                             x_fit, y_fit,
-                            label=f'Fit (R2: {r_value**2:.2f})',
+                            label=f'Fit (R2: {R2: .2f} \nred_chi_sq: {red_chi_sq: .2f})',
                             color='red', linestyle='--')
                         current_ax_reg.text(
                             0.05, 0.95, f'Slope: {slope:.2e}',
                             transform=current_ax_reg.transAxes,
                             verticalalignment='top', fontsize=6)
+                        
                     else:
                         current_ax_reg.text(
                             0.5, 0.5, 'Regression analysis failed',
@@ -2047,7 +2226,8 @@ def analyse_cals(data, data_dir, channels, molecule, cal_cylinder_conc
                     'avg_lsr_pwr': cal_laser_power,
                     'slope': slope,
                     'intercept': intercept,
-                    'R2': r_value**2,
+                    'R2': R2,
+                    'reduced_chi_squared': red_chi_sq,
                     'slope_std_err': std_err_of_slope
                     }
 
@@ -2101,11 +2281,11 @@ def analyse_cals(data, data_dir, channels, molecule, cal_cylinder_conc
             # --- Plotting ---
             
             ax[i].errorbar(
-                time_data,                           # X-axis: Time
-                cal_df_filtered['slope'],            # Y-axis: Calibration Factor
-                yerr=cal_df_filtered['slope_std_err'], # Error bars (y-uncertainty)
-                fmt='o',                             # Format: 'o' for circles (scatter)
-                capsize=3,                           # Size of the error bar caps
+                time_data,                              # X-axis: Time
+                cal_df_filtered['slope'],               # Y-axis: Calibration Factor
+                yerr=cal_df_filtered['slope_std_err'],  # Error bars (y-uncertainty)
+                fmt='o',                                # Format: 'o' for circles (scatter)
+                capsize=3,                              # Size of the error bar caps
                 color='darkslateblue',
                 label='calculated cal factors'
             )
@@ -2253,14 +2433,27 @@ def analyse_BLC_cals(data, data_dir, plot, save_csv, BLC_cal_task):
             'Q4_Mean': quarter_means[3]
             }
         
-        denom = result_dict['Q1_Mean'] - result_dict['Q3_Mean']
-        
-        if np.isclose(denom, 0.0):
+        # Check if all means are finite (not NaN or Inf)
+        if not all(np.isfinite(quarter_means)):
             conversion_efficiency = np.nan
         else:
-            conversion_efficiency = (
-                1 - ((result_dict['Q2_Mean']-result_dict['Q4_Mean']) / denom)
-                )
+            denom = result_dict['Q1_Mean'] - result_dict['Q3_Mean']
+            numerator = result_dict['Q2_Mean'] - result_dict['Q4_Mean']
+            
+            # Case 1: Denominator is zero (or very close)
+            if np.isclose(denom, 0.0):
+                # Case 1a: If numerator is also zero (0/0 = NaN)
+                if np.isclose(numerator, 0.0):
+                    conversion_efficiency = np.nan # Undefined result
+                # Case 1b: If numerator is non-zero (X/0 = Inf)
+                else:
+                    # Setting to NaN ensures non-finite value doesn't propagate as Inf
+                    conversion_efficiency = np.nan 
+            
+            # Case 2: Standard valid division
+            else:
+                conversion_efficiency = (1 - (numerator / denom))
+        
         
         # --- PLOTTING LOGIC CONTINUED (Drawing the Plot) ---
         if plot:
@@ -2339,7 +2532,7 @@ def analyse_BLC_cals(data, data_dir, plot, save_csv, BLC_cal_task):
         plt.tight_layout()
         plt.show()
     
-def apply_cals_average(data_dir, data, channels, BLC):
+def apply_cals_average(data_dir, data, R2_limit, channels, BLC, start_times=None, end_times=None):
     
     data_MRs = data.copy()
     # Create subplots: one row per channel
@@ -2355,20 +2548,28 @@ def apply_cals_average(data_dir, data, channels, BLC):
         file_path = os.path.join(data_dir, f'{channel}_cal_data.txt')
         cal_data_df = pd.read_csv(file_path)
 
-        # Filter out poor regressions (R2 < 0.75) and sort by time
+        # Filter out poor regressions (R2 < R2_limit) and sort by time
         cal_df_filtered = cal_data_df[
-            cal_data_df['R2'] >= 0.75
+            cal_data_df['R2'] >= R2_limit
         ].sort_values(by='cal_start_date_time')
-        
+
         avg_cal_factor = cal_df_filtered['slope'].mean()
         
         data_MRs[f'{channel}_cal_factor'] = avg_cal_factor
+        
+        ch_start = start_times.get(channel) if start_times else None
+        ch_end = end_times.get(channel) if end_times else None
         
         data_MRs[f'amb_{molecule}_ppt'] = np.where(
             (data_MRs['Task'] == 0) & (data_MRs['Peak_find_flag'] == 0)
             , data_MRs[f'{channel}_diff_cts_ref_norm_zero_corr'] / data_MRs[f'{channel}_cal_factor']
             , np.nan
             )
+    
+        if ch_start:
+            data_MRs.loc[data_MRs['Date_time'] < pd.to_datetime(ch_start, dayfirst=True), f'amb_{molecule}_ppt'] = np.nan
+        if ch_end:
+            data_MRs.loc[data_MRs['Date_time'] > pd.to_datetime(ch_end, dayfirst=True), f'amb_{molecule}_ppt'] = np.nan
     
         # Convert time column to datetime objects
         time_data = pd.to_datetime(
@@ -2404,7 +2605,20 @@ def apply_cals_average(data_dir, data, channels, BLC):
         
         BLC_data = pd.read_csv(os.path.join(data_dir, 'BLC_cal_data.txt'))
         mask_1V = (BLC_data['BLC_0_v'] >= 0.9) & (BLC_data['BLC_1_v'] >= 0.9)
-        BLC_data_1V = BLC_data[mask_1V]
+        BLC_data_1V = BLC_data[mask_1V].copy()
+        
+        # Replace non-finite values (Inf) with NaN.
+        # This ensures they are ignored in the .mean() calculation.
+        BLC_data_1V.loc[:, 'conversion_efficiency'] = BLC_data_1V['conversion_efficiency'].replace(
+            [np.inf, -np.inf], 
+            np.nan
+        )
+        
+        # drop rows with NaN before plotting the scatter points
+        BLC_data_1V.dropna(
+            subset=['conversion_efficiency'], inplace=True
+        )
+        
         
         avg_conv_eff = BLC_data_1V['conversion_efficiency'].mean()
         print(f'average conversion efficiency: {avg_conv_eff}')
@@ -2495,22 +2709,14 @@ def CARES_NO_ref_correction(data):
     
     return cts_data
 
-def CARES_NO_plot_data(data_dir, filename):
+def CARES_NO_plot_data_old(data_dir, data):
     
     print("Loading NOx data...")
-    try:
-        nox_file = os.path.join(data_dir, f'{filename}.txt')
-        NOx_data = pd.read_csv(nox_file)
-        # Convert 'Date_time' to datetime objects and floor to the minute
-        NOx_data['Date_time'] = (
-            pd.to_datetime(NOx_data['Date_time']).dt.floor('min')
-        )
-    except FileNotFoundError:
-        print(
-            f"Error: NOx file not found in {data_dir}. "
-            "Please check the path and filename."
-        )
-        raise
+    NOx_data = data.copy()
+    # Convert 'Date_time' to datetime objects and floor to the minute
+    NOx_data['Date_time'] = (
+        pd.to_datetime(NOx_data['Date_time']).dt.floor('min')
+    )
 
     # --- 3. Load and Preprocess Baseline Data (Crucial for filtering) ---
     print("Loading and processing Baseline data...")
@@ -2715,7 +2921,7 @@ def CARES_NO_plot_data(data_dir, filename):
 
 
     # --- 7. Plotting the Full Time Series Data (Clean vs. Unclean) ---
-    print("Generating full time series plots (60-min means) showing clean "
+    print("Generating full time series plots (60-min medians) showing clean "
           "and other data...")
 
     # 'Other' data is where the B flag is NOT 10
@@ -2730,10 +2936,10 @@ def CARES_NO_plot_data(data_dir, filename):
         np.nan
     )
 
-    # Resample all plotting columns to 60-minute means
+    # Resample all plotting columns to 60-minute medians
     plot_data_60min = NOx_data[
         ['clean_NO', 'clean_NO2', 'other_NO', 'other_NO2']
-    ].resample('60 min').mean()
+    ].resample('60 min').median()
 
 
     # Create a second figure for the time series
@@ -2756,7 +2962,7 @@ def CARES_NO_plot_data(data_dir, filename):
                           label='Other Data (B \u2260 10)') 
 
     ax_timeseries[0].set_title(
-        'Full Time Series of NO Concentration at Mace Head (60-min Mean)', 
+        'Full Time Series of NO Concentration at Mace Head (60-min median)', 
         fontsize=14, 
         fontweight='bold'
     )
@@ -2780,7 +2986,7 @@ def CARES_NO_plot_data(data_dir, filename):
                           label='Other Data (B \u2260 10)')
 
     ax_timeseries[1].set_title(
-        'Full Time Series of $\\text{NO}_2$ Concentration at Mace Head (60-min Mean)', 
+        'Full Time Series of $\\text{NO}_2$ Concentration at Mace Head (60-min median)', 
         fontsize=14, 
         fontweight='bold'
     )
@@ -2793,9 +2999,9 @@ def CARES_NO_plot_data(data_dir, filename):
 
     # Formatting the X-axis (shared for both plots)
     # Use a formatter for month and year visibility
-    date_form = DateFormatter("%Y-%m")
+    date_form = DateFormatter("%Y/%m/%d \n%H:%M")
     ax_timeseries[1].xaxis.set_major_formatter(date_form)
-    ax_timeseries[1].xaxis.set_major_locator(MonthLocator(interval=2))
+    #ax_timeseries[1].xaxis.set_major_locator(MonthLocator(interval=2))
     ax_timeseries[1].set_xlabel('Date (Year-Month)', fontsize=12)
 
     fig_timeseries.tight_layout() # Adjust layout for the second figure
@@ -2803,4 +3009,637 @@ def CARES_NO_plot_data(data_dir, filename):
     plt.show() # Display both figures
 
     print("All plots generated successfully: Diurnal cycle (Median and IQR) and "
-          "full campaign Time Series (60-min mean) showing clean vs. other data.")
+          "full campaign Time Series (60-min median) showing clean vs. other data.")
+    
+
+def hampel_filter(series, window_size=101, n_sigmas=3):
+    # Ensure window_size is odd for centering
+    if window_size % 2 == 0: window_size += 1
+    
+    vals = series.values
+    # Create a 'sliding window' view (no actual data is copied yet)
+    windows = sliding_window_view(np.pad(vals, window_size//2, mode='edge'), window_size)
+    
+    # Calculate medians across the window axis (axis 1)
+    # Note: np.nanmedian is slightly slower but safer if you have NaNs
+    rolling_median = np.median(windows, axis=1)
+    
+    # Vectorized MAD calculation
+    # abs(window - median_of_that_window) -> then median of those diffs
+    rolling_mad = np.nanmedian(np.abs(windows - rolling_median[:, None]), axis=1)
+    
+    scale_factor = 0.6745
+    upper = rolling_median + (n_sigmas * rolling_mad / scale_factor)
+    lower = rolling_median - (n_sigmas * rolling_mad / scale_factor)
+    
+    # Use numpy.where for maximum speed
+    cleaned_vals = np.where((vals <= upper) & (vals >= lower), vals, rolling_median)
+    
+    return pd.Series(cleaned_vals, index=series.index)
+
+def CARES_NO_diurnal_raw_mean(data_dir, data):
+    
+    # --- Load NOx data --- 
+    NOx_data = data.copy()
+    NOx_data['Date_time'] = pd.to_datetime(NOx_data['Date_time'])
+    NOx_data = NOx_data.sort_values('Date_time').reset_index(drop=True)
+    
+# =============================================================================
+#     # --- spike removal ---
+#     NOx_data['amb_NO_ppt'] = hampel_filter(NOx_data['amb_NO_ppt'])
+#     NOx_data['amb_NO2_ppt'] = hampel_filter(NOx_data['amb_NO2_ppt'])
+# =============================================================================
+
+    # --- Load and Preprocess Baseline Data ---
+    try:
+        baseline_file = os.path.join(data_dir, 'MH_G_baseComb2_2025.txt')
+        baseline_data = pd.read_csv(
+            baseline_file, sep=r'\s+', header=6, engine='python'
+            )
+        
+        # datetime conversion from separate YY, MM, DD, HH, Mn columns  
+        # generates a Date_time column
+        time_cols = {
+            'year': 'YY'
+            , 'month': 'MM'
+            , 'day': 'DD'
+            , 'hour': 'HH'
+            , 'minute': 'Mn'
+            }
+        baseline_data['Date_time'] = pd.to_datetime(
+            baseline_data[list(time_cols.values())].rename(
+                columns={v: k for k, v in time_cols.items()}),
+            errors='coerce'
+        )
+        
+        # Prepare baseline index for alignment
+        # removes nan times, sets index and sorts chronologically
+        baseline_data = baseline_data.dropna(
+            subset=['Date_time']).sort_values('Date_time')
+        
+    except FileNotFoundError:
+        print(f"Error: Baseline file not found in {data_dir}.")
+        raise
+        
+    # --- Merge NOx data and baseline flag ---
+    NOx_data = pd.merge_asof(
+        NOx_data, 
+        baseline_data[['Date_time', 'B']], # Only take the columns you need
+        on='Date_time', 
+        direction='backward' 
+        )
+
+    # --- Apply the baseline filter (B=10 is clean air) ---
+    NOx_data['clean_NO'] = np.where(NOx_data['B'] == 10, NOx_data['amb_NO_ppt'], np.nan)
+    NOx_data['clean_NO2'] = np.where(NOx_data['B'] == 10, NOx_data['amb_NO2_ppt'], np.nan)
+    NOx_data['other_NO'] = np.where(NOx_data['B'] != 10, NOx_data['amb_NO_ppt'], np.nan)
+    NOx_data['other_NO2'] = np.where(NOx_data['B'] != 10, NOx_data['amb_NO2_ppt'], np.nan)
+    
+    # --- group by hour ---
+    diurnal_df = NOx_data.groupby(NOx_data['Date_time'].dt.hour).agg({
+    'clean_NO': ['mean', 'std'],
+    'clean_NO2': ['mean', 'std']
+    })
+    
+    # --- Flatten the column names ---
+    diurnal_df.columns = [f"{col[0]}_{col[1]}" for col in diurnal_df.columns]
+
+    # --- Give the grouped index a clear name and reset it ---
+    diurnal_df.index.name = 'hour_of_day'
+    diurnal_df = diurnal_df.reset_index()
+    
+    # --- Plotting Diurnal Cycles ---
+    fig_diurnal, ax_diurnal = plt.subplots(2, 1, figsize=(8, 10), sharex=True)
+    
+    # NO Plot
+    ax_diurnal[0].plot(diurnal_df['hour_of_day'], diurnal_df['clean_NO_mean'], color='#4f46e5', lw=2.5, label='mean NO')
+    ax_diurnal[0].fill_between(diurnal_df['hour_of_day'], (diurnal_df['clean_NO_mean']-diurnal_df['clean_NO_std']), (diurnal_df['clean_NO_mean']+diurnal_df['clean_NO_std']), color='#4f46e5', alpha=0.2, label='+/- 1stddev')
+    ax_diurnal[0].set_ylabel('NO (ppt)', fontsize=11)
+    ax_diurnal[0].set_title('Diurnal Cycle: 10Hz mean by Hour', fontweight='bold', fontsize=13)
+
+    # NO2 Plot
+    ax_diurnal[1].plot(diurnal_df['hour_of_day'], diurnal_df['clean_NO2_mean'], color='#dc2626', lw=2.5, label='mean NO₂')
+    ax_diurnal[1].fill_between(diurnal_df['hour_of_day'], (diurnal_df['clean_NO2_mean']-diurnal_df['clean_NO2_std']), (diurnal_df['clean_NO2_mean']+diurnal_df['clean_NO2_std']), color='#dc2626', alpha=0.2, label='+/- 1stddev')
+    ax_diurnal[1].set_ylabel('NO₂ (ppt)', fontsize=11)
+    
+    # Formatting
+    ax_diurnal[1].set_xticks(np.arange(0, 24, 3))
+    ax_diurnal[1].set_xticklabels([f'{h:02d}:00' for h in np.arange(0, 24, 3)])
+    ax_diurnal[1].set_xlabel('Hour of Day (UTC)', fontsize=11)
+    ax_diurnal[1].set_xlim(0, 23)
+
+    for ax in ax_diurnal:
+        ax.legend(loc='upper right')
+        ax.grid(True, linestyle='--', alpha=0.5)
+    
+    plt.tight_layout()
+    
+def CARES_NO_diurnal_raw_median(data_dir, data):
+    
+    # --- Load NOx data --- 
+    NOx_data = data.copy()
+    NOx_data['Date_time'] = pd.to_datetime(NOx_data['Date_time'])
+    NOx_data = NOx_data.sort_values('Date_time').reset_index(drop=True)
+    
+# =============================================================================
+#     # --- spike removal ---
+#     NOx_data['amb_NO_ppt'] = hampel_filter(NOx_data['amb_NO_ppt'])
+#     NOx_data['amb_NO2_ppt'] = hampel_filter(NOx_data['amb_NO2_ppt'])
+# =============================================================================
+
+    # --- Load and Preprocess Baseline Data ---
+    try:
+        baseline_file = os.path.join(data_dir, 'MH_G_baseComb2_2025.txt')
+        baseline_data = pd.read_csv(
+            baseline_file, sep=r'\s+', header=6, engine='python'
+            )
+        
+        # datetime conversion from separate YY, MM, DD, HH, Mn columns  
+        # generates a Date_time column
+        time_cols = {
+            'year': 'YY'
+            , 'month': 'MM'
+            , 'day': 'DD'
+            , 'hour': 'HH'
+            , 'minute': 'Mn'
+            }
+        baseline_data['Date_time'] = pd.to_datetime(
+            baseline_data[list(time_cols.values())].rename(
+                columns={v: k for k, v in time_cols.items()}),
+            errors='coerce'
+        )
+        
+        # Prepare baseline index for alignment
+        # removes nan times, sets index and sorts chronologically
+        baseline_data = baseline_data.dropna(
+            subset=['Date_time']).sort_values('Date_time')
+        
+    except FileNotFoundError:
+        print(f"Error: Baseline file not found in {data_dir}.")
+        raise
+        
+    # --- Merge NOx data and baseline flag ---
+    NOx_data = pd.merge_asof(
+        NOx_data, 
+        baseline_data[['Date_time', 'B']], # Only take the columns you need
+        on='Date_time', 
+        direction='backward' 
+        )
+
+    # --- Apply the baseline filter (B=10 is clean air) ---
+    NOx_data['clean_NO'] = np.where(NOx_data['B'] == 10, NOx_data['amb_NO_ppt'], np.nan)
+    NOx_data['clean_NO2'] = np.where(NOx_data['B'] == 10, NOx_data['amb_NO2_ppt'], np.nan)
+    NOx_data['other_NO'] = np.where(NOx_data['B'] != 10, NOx_data['amb_NO_ppt'], np.nan)
+    NOx_data['other_NO2'] = np.where(NOx_data['B'] != 10, NOx_data['amb_NO2_ppt'], np.nan)
+    
+    # --- group by hour ---
+    def p25(x): return x.quantile(0.25)
+    def p75(x): return x.quantile(0.75)
+    
+    diurnal_df = NOx_data.groupby(NOx_data['Date_time'].dt.hour).agg({
+        'clean_NO': ['median', p25, p75],
+        'clean_NO2': ['median', p25, p75]
+    })
+    
+    # --- Flatten the column names ---
+    diurnal_df.columns = [f"{col[0]}_{col[1]}" for col in diurnal_df.columns]
+
+    # --- Give the grouped index a clear name and reset it ---
+    diurnal_df.index.name = 'hour_of_day'
+    diurnal_df = diurnal_df.reset_index()
+    
+    # --- Plotting Diurnal Cycles ---
+    fig_diurnal, ax_diurnal = plt.subplots(2, 1, figsize=(8, 10), sharex=True)
+    
+    # NO Plot
+    ax_diurnal[0].plot(diurnal_df['hour_of_day'], diurnal_df['clean_NO_median'], color='#4f46e5', lw=2.5, label='median NO')
+    ax_diurnal[0].fill_between(diurnal_df['hour_of_day'], diurnal_df['clean_NO_p25'], diurnal_df['clean_NO_p75'], color='#4f46e5', alpha=0.2, label='IQR')
+    ax_diurnal[0].set_ylabel('NO (ppt)', fontsize=11)
+    ax_diurnal[0].set_title('Diurnal Cycle: 10Hz median by hour', fontweight='bold', fontsize=13)
+
+    # NO2 Plot
+    ax_diurnal[1].plot(diurnal_df['hour_of_day'], diurnal_df['clean_NO2_median'], color='#dc2626', lw=2.5, label='median NO₂')
+    ax_diurnal[1].fill_between(diurnal_df['hour_of_day'], diurnal_df['clean_NO2_p25'], diurnal_df['clean_NO2_p75'], color='#dc2626', alpha=0.2, label='IQR')
+    ax_diurnal[1].set_ylabel('NO₂ (ppt)', fontsize=11)
+    
+    # Formatting
+    ax_diurnal[1].set_xticks(np.arange(0, 24, 3))
+    ax_diurnal[1].set_xticklabels([f'{h:02d}:00' for h in np.arange(0, 24, 3)])
+    ax_diurnal[1].set_xlabel('Hour of Day (UTC)', fontsize=11)
+    ax_diurnal[1].set_xlim(0, 23)
+
+    for ax in ax_diurnal:
+        ax.legend(loc='upper right')
+        ax.grid(True, linestyle='--', alpha=0.5)
+    
+    plt.tight_layout()
+    
+def CARES_NO_diurnal_median_of_medians(data_dir, data):
+    
+    # --- Load NOx data --- 
+    NOx_data = data.copy()
+    NOx_data['Date_time'] = pd.to_datetime(NOx_data['Date_time'])
+    NOx_data = NOx_data.sort_values('Date_time').reset_index(drop=True)
+    
+# =============================================================================
+#     # --- spike removal ---
+#     NOx_data['amb_NO_ppt'] = hampel_filter(NOx_data['amb_NO_ppt'])
+#     NOx_data['amb_NO2_ppt'] = hampel_filter(NOx_data['amb_NO2_ppt'])
+# =============================================================================
+
+    # --- Load and Preprocess Baseline Data ---
+    try:
+        baseline_file = os.path.join(data_dir, 'MH_G_baseComb2_2025.txt')
+        baseline_data = pd.read_csv(
+            baseline_file, sep=r'\s+', header=6, engine='python'
+            )
+        
+        # datetime conversion from separate YY, MM, DD, HH, Mn columns  
+        # generates a Date_time column
+        time_cols = {
+            'year': 'YY'
+            , 'month': 'MM'
+            , 'day': 'DD'
+            , 'hour': 'HH'
+            , 'minute': 'Mn'
+            }
+        baseline_data['Date_time'] = pd.to_datetime(
+            baseline_data[list(time_cols.values())].rename(
+                columns={v: k for k, v in time_cols.items()}),
+            errors='coerce'
+        )
+        
+        # Prepare baseline index for alignment
+        # removes nan times, sets index and sorts chronologically
+        baseline_data = baseline_data.dropna(
+            subset=['Date_time']).sort_values('Date_time')
+        
+    except FileNotFoundError:
+        print(f"Error: Baseline file not found in {data_dir}.")
+        raise
+        
+    # --- Merge NOx data and baseline flag ---
+    NOx_data = pd.merge_asof(
+        NOx_data, 
+        baseline_data[['Date_time', 'B']], # Only take the columns you need
+        on='Date_time', 
+        direction='backward' 
+        )
+
+    # --- Apply the baseline filter (B=10 is clean air) ---
+    NOx_data['clean_NO'] = np.where(NOx_data['B'] == 10, NOx_data['amb_NO_ppt'], np.nan)
+    NOx_data['clean_NO2'] = np.where(NOx_data['B'] == 10, NOx_data['amb_NO2_ppt'], np.nan)
+    NOx_data['other_NO'] = np.where(NOx_data['B'] != 10, NOx_data['amb_NO_ppt'], np.nan)
+    NOx_data['other_NO2'] = np.where(NOx_data['B'] != 10, NOx_data['amb_NO2_ppt'], np.nan)
+    
+    NOx_data = NOx_data.set_index('Date_time')
+    NOx_data_1hr = NOx_data.resample('60min').median()
+    
+    
+    # --- group by hour ---
+    def p25(x): return x.quantile(0.25)
+    def p75(x): return x.quantile(0.75)
+    
+    diurnal_df = NOx_data_1hr.groupby(NOx_data_1hr.index.hour).agg({
+        'clean_NO': ['median', p25, p75],
+        'clean_NO2': ['median', p25, p75]
+    })
+    
+    # --- Flatten the column names ---
+    diurnal_df.columns = [f"{col[0]}_{col[1]}" for col in diurnal_df.columns]
+
+    # --- Give the grouped index a clear name and reset it ---
+    diurnal_df.index.name = 'hour_of_day'
+    diurnal_df = diurnal_df.reset_index()
+    
+    # --- Plotting Diurnal Cycles ---
+    fig_diurnal, ax_diurnal = plt.subplots(2, 1, figsize=(8, 10), sharex=True)
+    
+    # NO Plot
+    ax_diurnal[0].plot(diurnal_df['hour_of_day'], diurnal_df['clean_NO_median'], color='#4f46e5', lw=2.5, label='NO')
+    ax_diurnal[0].fill_between(diurnal_df['hour_of_day'], diurnal_df['clean_NO_p25'], diurnal_df['clean_NO_p75'], color='#4f46e5', alpha=0.2, label='IQR')
+    ax_diurnal[0].set_ylabel('NO (ppt)', fontsize=11)
+    ax_diurnal[0].set_title('Diurnal Cycle: median of 60min medians', fontweight='bold', fontsize=13)
+
+    # NO2 Plot
+    ax_diurnal[1].plot(diurnal_df['hour_of_day'], diurnal_df['clean_NO2_median'], color='#dc2626', lw=2.5, label='NO₂')
+    ax_diurnal[1].fill_between(diurnal_df['hour_of_day'], diurnal_df['clean_NO2_p25'], diurnal_df['clean_NO2_p75'], color='#dc2626', alpha=0.2, label='IQR')
+    ax_diurnal[1].set_ylabel('NO₂ (ppt)', fontsize=11)
+    
+    # Formatting
+    ax_diurnal[1].set_xticks(np.arange(0, 24, 3))
+    ax_diurnal[1].set_xticklabels([f'{h:02d}:00' for h in np.arange(0, 24, 3)])
+    ax_diurnal[1].set_xlabel('Hour of Day (UTC)', fontsize=11)
+    ax_diurnal[1].set_xlim(0, 23)
+
+    for ax in ax_diurnal:
+        ax.legend(loc='upper right')
+        ax.grid(True, linestyle='--', alpha=0.5)
+    
+    plt.tight_layout()
+    
+def CARES_NO_diurnal_mean_of_medians(data_dir, data):
+    
+    # --- Load NOx data --- 
+    NOx_data = data.copy()
+    NOx_data['Date_time'] = pd.to_datetime(NOx_data['Date_time'])
+    NOx_data = NOx_data.sort_values('Date_time').reset_index(drop=True)
+    
+# =============================================================================
+#     # --- spike removal ---
+#     NOx_data['amb_NO_ppt'] = hampel_filter(NOx_data['amb_NO_ppt'])
+#     NOx_data['amb_NO2_ppt'] = hampel_filter(NOx_data['amb_NO2_ppt'])
+# =============================================================================
+
+    # --- Load and Preprocess Baseline Data ---
+    try:
+        baseline_file = os.path.join(data_dir, 'MH_G_baseComb2_2025.txt')
+        baseline_data = pd.read_csv(
+            baseline_file, sep=r'\s+', header=6, engine='python'
+            )
+        
+        # datetime conversion from separate YY, MM, DD, HH, Mn columns  
+        # generates a Date_time column
+        time_cols = {
+            'year': 'YY'
+            , 'month': 'MM'
+            , 'day': 'DD'
+            , 'hour': 'HH'
+            , 'minute': 'Mn'
+            }
+        baseline_data['Date_time'] = pd.to_datetime(
+            baseline_data[list(time_cols.values())].rename(
+                columns={v: k for k, v in time_cols.items()}),
+            errors='coerce'
+        )
+        
+        # Prepare baseline index for alignment
+        # removes nan times, sets index and sorts chronologically
+        baseline_data = baseline_data.dropna(
+            subset=['Date_time']).sort_values('Date_time')
+        
+    except FileNotFoundError:
+        print(f"Error: Baseline file not found in {data_dir}.")
+        raise
+        
+    # --- Merge NOx data and baseline flag ---
+    NOx_data = pd.merge_asof(
+        NOx_data, 
+        baseline_data[['Date_time', 'B']], # Only take the columns you need
+        on='Date_time', 
+        direction='backward' 
+        )
+
+    # --- Apply the baseline filter (B=10 is clean air) ---
+    NOx_data['clean_NO'] = np.where(NOx_data['B'] == 10, NOx_data['amb_NO_ppt'], np.nan)
+    NOx_data['clean_NO2'] = np.where(NOx_data['B'] == 10, NOx_data['amb_NO2_ppt'], np.nan)
+    NOx_data['other_NO'] = np.where(NOx_data['B'] != 10, NOx_data['amb_NO_ppt'], np.nan)
+    NOx_data['other_NO2'] = np.where(NOx_data['B'] != 10, NOx_data['amb_NO2_ppt'], np.nan)
+    
+    NOx_data = NOx_data.set_index('Date_time')
+    NOx_data_1hr = NOx_data.resample('60min').median()
+    
+    
+    # --- group by hour ---
+    diurnal_df = NOx_data_1hr.groupby(NOx_data_1hr.index.hour).agg({
+        'clean_NO': ['mean', 'std'],
+        'clean_NO2': ['mean', 'std']
+    })
+    
+    # --- Flatten the column names ---
+    diurnal_df.columns = [f"{col[0]}_{col[1]}" for col in diurnal_df.columns]
+
+    # --- Give the grouped index a clear name and reset it ---
+    diurnal_df.index.name = 'hour_of_day'
+    diurnal_df = diurnal_df.reset_index()
+    
+    # --- Plotting Diurnal Cycles ---
+    fig_diurnal, ax_diurnal = plt.subplots(2, 1, figsize=(8, 10), sharex=True)
+    
+    # NO Plot
+    ax_diurnal[0].plot(diurnal_df['hour_of_day'], diurnal_df['clean_NO_mean'], color='#4f46e5', lw=2.5, label='NO')
+    ax_diurnal[0].fill_between(diurnal_df['hour_of_day'], (diurnal_df['clean_NO_mean']-diurnal_df['clean_NO_std']), (diurnal_df['clean_NO_mean']+diurnal_df['clean_NO_std']), color='#4f46e5', alpha=0.2, label='+/- 1stddev')
+    ax_diurnal[0].set_ylabel('NO (ppt)', fontsize=11)
+    ax_diurnal[0].set_title('Diurnal Cycle: mean of 60min median', fontweight='bold', fontsize=13)
+
+    # NO2 Plot
+    ax_diurnal[1].plot(diurnal_df['hour_of_day'], diurnal_df['clean_NO2_mean'], color='#dc2626', lw=2.5, label='NO₂')
+    ax_diurnal[1].fill_between(diurnal_df['hour_of_day'], (diurnal_df['clean_NO2_mean']-diurnal_df['clean_NO2_std']), (diurnal_df['clean_NO2_mean']+diurnal_df['clean_NO2_std']), color='#dc2626', alpha=0.2, label='+/- 1stddev')
+    ax_diurnal[1].set_ylabel('NO₂ (ppt)', fontsize=11)
+    
+    # Formatting
+    ax_diurnal[1].set_xticks(np.arange(0, 24, 3))
+    ax_diurnal[1].set_xticklabels([f'{h:02d}:00' for h in np.arange(0, 24, 3)])
+    ax_diurnal[1].set_xlabel('Hour of Day (UTC)', fontsize=11)
+    ax_diurnal[1].set_xlim(0, 23)
+
+    for ax in ax_diurnal:
+        ax.legend(loc='upper right')
+        ax.grid(True, linestyle='--', alpha=0.5)
+    
+    plt.tight_layout()
+    
+def CARES_NO_diurnal_median_of_means(data_dir, data):
+    
+    # --- Load NOx data --- 
+    NOx_data = data.copy()
+    NOx_data['Date_time'] = pd.to_datetime(NOx_data['Date_time'])
+    NOx_data = NOx_data.sort_values('Date_time').reset_index(drop=True)
+    
+# =============================================================================
+#     # --- spike removal ---
+#     NOx_data['amb_NO_ppt'] = hampel_filter(NOx_data['amb_NO_ppt'])
+#     NOx_data['amb_NO2_ppt'] = hampel_filter(NOx_data['amb_NO2_ppt'])
+# 
+# =============================================================================
+    # --- Load and Preprocess Baseline Data ---
+    try:
+        baseline_file = os.path.join(data_dir, 'MH_G_baseComb2_2025.txt')
+        baseline_data = pd.read_csv(
+            baseline_file, sep=r'\s+', header=6, engine='python'
+            )
+        
+        # datetime conversion from separate YY, MM, DD, HH, Mn columns  
+        # generates a Date_time column
+        time_cols = {
+            'year': 'YY'
+            , 'month': 'MM'
+            , 'day': 'DD'
+            , 'hour': 'HH'
+            , 'minute': 'Mn'
+            }
+        baseline_data['Date_time'] = pd.to_datetime(
+            baseline_data[list(time_cols.values())].rename(
+                columns={v: k for k, v in time_cols.items()}),
+            errors='coerce'
+        )
+        
+        # Prepare baseline index for alignment
+        # removes nan times, sets index and sorts chronologically
+        baseline_data = baseline_data.dropna(
+            subset=['Date_time']).sort_values('Date_time')
+        
+    except FileNotFoundError:
+        print(f"Error: Baseline file not found in {data_dir}.")
+        raise
+        
+    # --- Merge NOx data and baseline flag ---
+    NOx_data = pd.merge_asof(
+        NOx_data, 
+        baseline_data[['Date_time', 'B']], # Only take the columns you need
+        on='Date_time', 
+        direction='backward' 
+        )
+
+    # --- Apply the baseline filter (B=10 is clean air) ---
+    NOx_data['clean_NO'] = np.where(NOx_data['B'] == 10, NOx_data['amb_NO_ppt'], np.nan)
+    NOx_data['clean_NO2'] = np.where(NOx_data['B'] == 10, NOx_data['amb_NO2_ppt'], np.nan)
+    NOx_data['other_NO'] = np.where(NOx_data['B'] != 10, NOx_data['amb_NO_ppt'], np.nan)
+    NOx_data['other_NO2'] = np.where(NOx_data['B'] != 10, NOx_data['amb_NO2_ppt'], np.nan)
+    
+    NOx_data = NOx_data.set_index('Date_time')
+    NOx_data_1hr = NOx_data.resample('60min').mean()
+    
+    
+    # --- group by hour ---
+    def p25(x): return x.quantile(0.25)
+    def p75(x): return x.quantile(0.75)
+    
+    diurnal_df = NOx_data_1hr.groupby(NOx_data_1hr.index.hour).agg({
+        'clean_NO': ['median', p25, p75],
+        'clean_NO2': ['median', p25, p75]
+    })
+    
+    # --- Flatten the column names ---
+    diurnal_df.columns = [f"{col[0]}_{col[1]}" for col in diurnal_df.columns]
+
+    # --- Give the grouped index a clear name and reset it ---
+    diurnal_df.index.name = 'hour_of_day'
+    diurnal_df = diurnal_df.reset_index()
+    
+    # --- Plotting Diurnal Cycles ---
+    fig_diurnal, ax_diurnal = plt.subplots(2, 1, figsize=(8, 10), sharex=True)
+    
+    # NO Plot
+    ax_diurnal[0].plot(diurnal_df['hour_of_day'], diurnal_df['clean_NO_median'], color='#4f46e5', lw=2.5, label='NO')
+    ax_diurnal[0].fill_between(diurnal_df['hour_of_day'], diurnal_df['clean_NO_p25'], diurnal_df['clean_NO_p75'], color='#4f46e5', alpha=0.2, label='IQR')
+    ax_diurnal[0].set_ylabel('NO (ppt)', fontsize=11)
+    ax_diurnal[0].set_title('Diurnal Cycle: median of 60min means', fontweight='bold', fontsize=13)
+
+    # NO2 Plot
+    ax_diurnal[1].plot(diurnal_df['hour_of_day'], diurnal_df['clean_NO2_median'], color='#dc2626', lw=2.5, label='NO₂')
+    ax_diurnal[1].fill_between(diurnal_df['hour_of_day'], diurnal_df['clean_NO2_p25'], diurnal_df['clean_NO2_p75'], color='#dc2626', alpha=0.2, label='IQR')
+    ax_diurnal[1].set_ylabel('NO₂ (ppt)', fontsize=11)
+    
+    # Formatting
+    ax_diurnal[1].set_xticks(np.arange(0, 24, 3))
+    ax_diurnal[1].set_xticklabels([f'{h:02d}:00' for h in np.arange(0, 24, 3)])
+    ax_diurnal[1].set_xlabel('Hour of Day (UTC)', fontsize=11)
+    ax_diurnal[1].set_xlim(0, 23)
+
+    for ax in ax_diurnal:
+        ax.legend(loc='upper right')
+        ax.grid(True, linestyle='--', alpha=0.5)
+    
+    plt.tight_layout()
+    
+def CARES_NO_diurnal_mean_of_means(data_dir, data):
+    
+    # --- Load NOx data --- 
+    NOx_data = data.copy()
+    NOx_data['Date_time'] = pd.to_datetime(NOx_data['Date_time'])
+    NOx_data = NOx_data.sort_values('Date_time').reset_index(drop=True)
+    
+# =============================================================================
+#     # --- spike removal ---
+#     NOx_data['amb_NO_ppt'] = hampel_filter(NOx_data['amb_NO_ppt'])
+#     NOx_data['amb_NO2_ppt'] = hampel_filter(NOx_data['amb_NO2_ppt'])
+# =============================================================================
+
+    # --- Load and Preprocess Baseline Data ---
+    try:
+        baseline_file = os.path.join(data_dir, 'MH_G_baseComb2_2025.txt')
+        baseline_data = pd.read_csv(
+            baseline_file, sep=r'\s+', header=6, engine='python'
+            )
+        
+        # datetime conversion from separate YY, MM, DD, HH, Mn columns  
+        # generates a Date_time column
+        time_cols = {
+            'year': 'YY'
+            , 'month': 'MM'
+            , 'day': 'DD'
+            , 'hour': 'HH'
+            , 'minute': 'Mn'
+            }
+        baseline_data['Date_time'] = pd.to_datetime(
+            baseline_data[list(time_cols.values())].rename(
+                columns={v: k for k, v in time_cols.items()}),
+            errors='coerce'
+        )
+        
+        # Prepare baseline index for alignment
+        # removes nan times, sets index and sorts chronologically
+        baseline_data = baseline_data.dropna(
+            subset=['Date_time']).sort_values('Date_time')
+        
+    except FileNotFoundError:
+        print(f"Error: Baseline file not found in {data_dir}.")
+        raise
+        
+    # --- Merge NOx data and baseline flag ---
+    NOx_data = pd.merge_asof(
+        NOx_data, 
+        baseline_data[['Date_time', 'B']], # Only take the columns you need
+        on='Date_time', 
+        direction='backward' 
+        )
+
+    # --- Apply the baseline filter (B=10 is clean air) ---
+    NOx_data['clean_NO'] = np.where(NOx_data['B'] == 10, NOx_data['amb_NO_ppt'], np.nan)
+    NOx_data['clean_NO2'] = np.where(NOx_data['B'] == 10, NOx_data['amb_NO2_ppt'], np.nan)
+    NOx_data['other_NO'] = np.where(NOx_data['B'] != 10, NOx_data['amb_NO_ppt'], np.nan)
+    NOx_data['other_NO2'] = np.where(NOx_data['B'] != 10, NOx_data['amb_NO2_ppt'], np.nan)
+    
+    NOx_data = NOx_data.set_index('Date_time')
+    NOx_data_1hr = NOx_data.resample('60min').median()
+    
+    
+    # --- group by hour ---
+    diurnal_df = NOx_data_1hr.groupby(NOx_data_1hr.index.hour).agg({
+        'clean_NO': ['mean', 'std'],
+        'clean_NO2': ['mean', 'std']
+    })
+    
+    # --- Flatten the column names ---
+    diurnal_df.columns = [f"{col[0]}_{col[1]}" for col in diurnal_df.columns]
+
+    # --- Give the grouped index a clear name and reset it ---
+    diurnal_df.index.name = 'hour_of_day'
+    diurnal_df = diurnal_df.reset_index()
+    
+    # --- Plotting Diurnal Cycles ---
+    fig_diurnal, ax_diurnal = plt.subplots(2, 1, figsize=(8, 10), sharex=True)
+    
+    # NO Plot
+    ax_diurnal[0].plot(diurnal_df['hour_of_day'], diurnal_df['clean_NO_mean'], color='#4f46e5', lw=2.5, label='NO')
+    ax_diurnal[0].fill_between(diurnal_df['hour_of_day'], (diurnal_df['clean_NO_mean']-diurnal_df['clean_NO_std']), (diurnal_df['clean_NO_mean']+diurnal_df['clean_NO_std']), color='#4f46e5', alpha=0.2, label='+/- 1stddev')
+    ax_diurnal[0].set_ylabel('NO (ppt)', fontsize=11)
+    ax_diurnal[0].set_title('Diurnal Cycle: mean of 60min means', fontweight='bold', fontsize=13)
+
+    # NO2 Plot
+    ax_diurnal[1].plot(diurnal_df['hour_of_day'], diurnal_df['clean_NO2_mean'], color='#dc2626', lw=2.5, label='NO₂')
+    ax_diurnal[1].fill_between(diurnal_df['hour_of_day'], (diurnal_df['clean_NO2_mean']-diurnal_df['clean_NO2_std']), (diurnal_df['clean_NO2_mean']+diurnal_df['clean_NO2_std']), color='#dc2626', alpha=0.2, label='+/- 1stddev')
+    ax_diurnal[1].set_ylabel('NO₂ (ppt)', fontsize=11)
+    
+    # Formatting
+    ax_diurnal[1].set_xticks(np.arange(0, 24, 3))
+    ax_diurnal[1].set_xticklabels([f'{h:02d}:00' for h in np.arange(0, 24, 3)])
+    ax_diurnal[1].set_xlabel('Hour of Day (UTC)', fontsize=11)
+    ax_diurnal[1].set_xlim(0, 23)
+
+    for ax in ax_diurnal:
+        ax.legend(loc='upper right')
+        ax.grid(True, linestyle='--', alpha=0.5)
+    
+    plt.tight_layout() 
