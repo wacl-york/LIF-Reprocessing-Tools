@@ -9,17 +9,18 @@ cal_task = 2                                                                    
 R2_limit = 0.8                                                               # Task number associated with BLC cals
 BLC = False                                                                     # Boolean indicator of whether BLC needs analysing
 plot = True                                                                     # diagnostics plots at various analysis stages
-averaging = '5 min'                                                             # averaging for the final output file
-filename = 'SO2_CARES_DY195_prelim_20250607_to_20250625_(20251218)'                                 # filename for the resampled MR output
+averaging = '10S' # 5 min                                                            # averaging for the final output file
+filename = 'SO2_GRIMSAF_v1_20260105'                                 # filename for the resampled MR output
 cal_cylinder_conc = 5100                                                        # in ppb
 pre_taskswitch = 1#300                                                            # data points before task switch to ignore
 post_taskswitch = 400                                                           # data points after task switch to ignore
 pre_peakfind = 20                                                               # data points before ref_cts_diff drop to ignore
 post_peakfind = 60#200                                                             # data points after ref_cts_diff drop to ignore
-ref_cts_diff_limit = 188000                                                      # lower limit ref_diff_cts_norm
-
+#ref_cts_diff_limit = 188000  #DY195                                                    # lower limit ref_diff_cts_norm
+ref_cts_diff_limit = 150000  #GRIMSAF   
 #DATA DIRECTORIES
-data_dir = (r"E:\boat_SO2_data")
+#data_dir = (r"E:\boat_SO2_data")
+data_dir = (r"E:\SOOZ\GRIMSAF\data")
 wind_folder = (r"E:\DY195 FLUX WEATHER DATA\Week 1 to 3 v2")
 # ----------------------------------------------------------------------------
 
@@ -40,25 +41,33 @@ cts_data_ref_norm = lif.ref_normalise(
 #DY195 sectioning!
 cts_data_ref_norm_sec = cts_data_ref_norm.copy()
 cts_data_ref_norm_sec['Date_time'] = pd.to_datetime(cts_data_ref_norm_sec['Date_time'])
-start_date = "2025-06-07 12:00:00"
-end_date = "2025-06-25 23:00:00"
-cts_data_ref_norm_sec = cts_data_ref_norm_sec[
-    (cts_data_ref_norm_sec['Date_time'] >= start_date) & 
-    (cts_data_ref_norm_sec['Date_time'] <= end_date)
-]
+plt.plot(cts_data_ref_norm_sec["Date_time"], cts_data_ref_norm_sec["ref_diff_cts_norm"])
+plt.plot(cts_data_ref_norm_sec["Date_time"], cts_data_ref_norm_sec["sig_diff_cts_norm"])
+
+# start_date = "2025-06-07 12:00:00"
+# end_date = "2025-06-25 23:00:00"
+# cts_data_ref_norm_sec = cts_data_ref_norm_sec[
+#     (cts_data_ref_norm_sec['Date_time'] >= start_date) & 
+#     (cts_data_ref_norm_sec['Date_time'] <= end_date)
+# ]
 
 #back to the code!
 cts_data_flagged = lif.set_flags(
-    cts_data_ref_norm_sec, pre_taskswitch, post_taskswitch, pre_peakfind
+    cts_data_ref_norm, pre_taskswitch, post_taskswitch, pre_peakfind
     , post_peakfind, ref_cts_diff_limit
     )
 cts_data_zeroed = lif.zero_correct_average(
     cts_data_flagged, channels=channels, plot=plot
     )
+cts_data_zeroed["Date_time"] = pd.to_datetime(cts_data_zeroed["Date_time"])
+plt.plot(cts_data_zeroed["Date_time"], cts_data_zeroed["sig_diff_cts_norm"])
+plt.plot(cts_data_zeroed["Date_time"], cts_data_zeroed["ref_diff_cts_norm"])
+
 #EVE PIECE OF MIND CHECK
 cts_data_single_point_plotting = lif.cal_single_point(
     cts_data_flagged, channels=channels, plot = plot
     )
+#back to the actual code!
 lif.analyse_cals(
     cts_data_zeroed, data_dir, channels=channels, molecule=molecule
     , cal_cylinder_conc=cal_cylinder_conc, plot=plot, save_csv=True
@@ -73,14 +82,16 @@ MR_data_resampled = lif.resample_data(
 lif.save_to_csv(
     data_dir, filename, MR_data_resampled
     )
+
+
+#DY195 RELEVANT FUNCTIONS
+"""
 processed_data_dir = (r"E:\boat_SO2_data\SO2_txt_ppt_files_1min")
 #ppt_data = lif.join_txt(processed_data_dir, campaign = "DY195")
-
-
-SO2_data = lif.SO2_plot_data(processed_data_dir,
+SO2_data = lif.SO2_plot_data_DY195(processed_data_dir,
                     filename = "v1_DY195_data", 
                     campaign = "DY195", version = "v1")
-#DY195 RELEVANT FUNCTIONS
+
 interuptions_csv_path = "CARES BOAT interuptions to data collection - Sheet1.csv"
 filtered_DY195_SO2_data = lif.DY195_flagged_periods(interuptions_csv_path,SO2_data)
 
@@ -98,18 +109,49 @@ lif.DY195_in_sector_diurnal_5min(SO2_5min_in_sector)
 cloud_fraction_data_path = r"C:\Users\Eve\Documents\Year 2\CARES\cloud fraction (DY195).csv"
 lif.cloud_fraction(cloud_fraction_data_path, SO2_1min_in_sector)
 #winds = lif.load_all_winds_DY195(wind_folder)
+"""
+
+#GRIMSAF data analysis
+processed_data_dir = (r"E:\SOOZ\GRIMSAF\data\v1_processed_data_file")
+SO2_data = lif.SO2_plot_data_GRIMSAF(processed_data_dir,
+                    filename, 
+                    campaign = "GRIMSAF", version = "v1")
+#had to chnage the resample function a little bit and then also the one where we assign the ambient
+#value as I removed Task =2 and left everything else in!
+
+SO2_data["Date_time"] = pd.to_datetime(SO2_data["Date_time"])
+
+start_date = "2025-09-24 17:57:00"
+end_date = "2025-09-24 17:59:00"
+SO2_data_mean = SO2_data.loc[
+    (SO2_data['Date_time'] >= start_date) & 
+    (SO2_data['Date_time'] <= end_date),"amb_SO2_ppt"].mean()
+print(SO2_data_mean)
+
+fig, flow_amb = plt.subplots(1,1)
+flow_amb.plot(SO2_data["Date_time"], SO2_data["amb_SO2_ppt"])
+r = flow_amb.twinx()
+r.plot(cts_data_zeroed["Date_time"], cts_data_zeroed["Task"], color = "purple")
+
+#just used the housekeeping for this (so used the hK quick look functions/ code)
+start_date = "2025-09-22 15:12:00"
+end_date = "2025-09-22 17:08:00"
+Flows = cts_data_ref_norm_sec.loc[
+    (cts_data_ref_norm_sec['Date_time'] >= start_date) & 
+    (cts_data_ref_norm_sec['Date_time'] <= end_date)].mean()
+print(Flows["Cell_Flow"], Flows["ZA_SB_MFC_Read"], Flows["Cal_ZA_MFC_Read"])
 
 
 
 
+# cal_data_GRIMSAF = pd.read_csv("E:\SOOZ\GRIMSAF\data\sig_cal_data.txt", header =0)
+# average_cal_factor = np.mean(cal_data_GRIMSAF["slope"])
+# GRIMSAF_data_10Hz = cts_data_zeroed["sig_diff_cts_ref_norm_zero_corr"] / average_cal_factor
 
+# GRIMSAF_data_10Hz = GRIMSAF_data_10Hz.to_frame()
 
-
-
-
-
-
-
+# plt.plot(GRIMSAF_data_10Hz.index, GRIMSAF_data_10Hz["sig_diff_cts_ref_norm_zero_corr"])
+# print(GRIMSAF_data_10Hz["sig_diff_cts_ref_norm_zero_corr"])
 
 """
 pos_df = underway_data
