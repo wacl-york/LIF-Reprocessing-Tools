@@ -3011,6 +3011,7 @@ def CARES_NO_plot_data_old(data_dir, data):
     print("All plots generated successfully: Diurnal cycle (Median and IQR) and "
           "full campaign Time Series (60-min median) showing clean vs. other data.")
     
+    
 
 def hampel_filter(series, window_size=101, n_sigmas=3):
     # Ensure window_size is odd for centering

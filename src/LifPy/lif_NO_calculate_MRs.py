@@ -12,8 +12,8 @@ BLC_cal_task = 1                                                                
 R2_limit = 0.75                                                                 # Lower limit for R2 values of cal regression
 BLC = True                                                                      # Boolean indicator of whether BLC present
 plot = False                                                                    # diagnostics plots at various analysis stages
-averaging = '1 min'                                                            # averaging for the final output file
-filename = 'NOx_CARES_MaceHead_prelim_20251219'                                 # filename for the resampled MR output
+averaging = '1 min'                                                             # averaging for the final output file
+filename = 'NOx_CARES_MaceHead_prelim_with_baseline_20260113'                                 # filename for the resampled MR output
 cal_cylinder_conc = 5000                                                        # in ppb
 pre_taskswitch = 300    # (at 10Hz = 30 secs)                                   # data points before task switch to ignore
 post_taskswitch = 600   # (at 10Hz = 60 secs)                                   # data points after task switch to ignore
@@ -71,11 +71,7 @@ MR_data_resampled = lif.resample_data(
 lif.save_to_csv(
     data_dir, filename, MR_data_resampled
     )
-lif.CARES_NO_plot_data_old(data_dir, MR_data)
-
-
-
-
+lif.CARES_NO_plot_data_old(data_dir, MR_data_resampled)
 
 
 lif.CARES_NO_diurnal_raw_mean(
