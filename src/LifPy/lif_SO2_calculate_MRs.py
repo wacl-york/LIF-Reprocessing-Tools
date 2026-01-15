@@ -42,13 +42,14 @@ MH_baseline_file =
 T_baseline_flagger = 
 T_winds =  
 # ----------------------------------------------------------------------------
-
+#REMEMBER TO ENSURE THAT THE FLOWS HAVE BEEN SET TO THE CORRECT VALUE
 day_folders = lif.find_day_folders(
     data_dir
     )
 cts_data = lif.read_processed_files(
     data_dir, day_folders
     )
+cts_data_cell_flow_adjusted = lif.cell_flow_adjusted(cts_data)
 cts_data_ref_norm = lif.ref_normalise(
     cts_data, channels=channels
     )
@@ -80,6 +81,11 @@ plt.xlabel("Datetime")
 cts_data_single_point_plotting = lif.cal_single_point(
     cts_data_flagged, channels=channels, plot = plot
     )
+
+
+
+
+
 lif.analyse_cals(
     cts_data_zeroed, data_dir, channels=channels, molecule=molecule
     , cal_cylinder_conc=cal_cylinder_conc, plot=plot, save_csv=True

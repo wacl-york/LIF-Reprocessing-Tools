@@ -795,6 +795,35 @@ def gen_output_data(file, channel_format, data_dir, bin_data_dict, HK_data
     this_file_index = processing_variables[
         processing_variables['bin_filename'] == file].index[0]
     
+    for channel in bin_data_dict.keys():
+        bin_data_dict[channel] = bin_data_dict[channel].astype(float)
+    for col in processing_variables.columns:
+        if '_shift' in col:
+            # Get the actual channel name (e.g., 'sig_counts' from 'sig_counts_shift')
+            channel_name = col.replace('_shift', '')
+            
+            # Check if this channel exists in our data
+            if channel_name in bin_data_dict:
+                shift_val = int(float(processing_variables[col][this_file_index]))
+                
+                if shift_val == 0:
+                    continue
+                    
+                data = bin_data_dict[channel_name]
+                orig_len = len(data)
+                
+                if shift_val > 0:
+                    # Move Right: Pad start, trim end
+                    shifted = np.pad(data, (shift_val, 0), mode='constant', constant_values=np.nan)
+                    bin_data_dict[channel_name] = shifted[:orig_len]
+                else:
+                    # Move Left: Pad end, trim start
+                    abs_s = abs(shift_val)
+                    shifted = np.pad(data, (0, abs_s), mode='constant', constant_values=np.nan)
+                    bin_data_dict[channel_name] = shifted[abs_s:]
+                
+                print(f"Applied shift of {shift_val} to {channel_name}")
+    """
     # Shift relevant columns as needed
     for channel in channel_format:
         if channel not in ['sig_counts', 'ref_counts', 'seed_LD_current']:
@@ -838,7 +867,7 @@ def gen_output_data(file, channel_format, data_dir, bin_data_dict, HK_data
             # Slice off the beginning to maintain original length
             bin_data_dict[channel] = shifted_array[abs_shift:]   
             #bin_data_dict[channel] = bin_data_dict[channel].astype(int)
-    
+    """
     
     cts_ind_arr = [i for i in range(0, len(list(bin_data_dict)))
                        if 'sig_' in list(bin_data_dict)[i]
@@ -1580,6 +1609,43 @@ def read_processed_files(data_dir, day_folders):
 
     return cts_data
 
+def cell_flow_adjusted(cts_data):
+    
+    cts_data_o = cts_data.copy()
+    # Find all flow columns and sum them to a total flow
+    #DY195 CELL FLOW ACTUAL VALUE
+    #think that the difference was 19.45%
+    #approx value calc:
+    #cts_data["Cell_Flow"] = cts_data["Cell_Flow"]*0.8155
+    
+    #IMPLEMENTATION FOR EACH CAMPAIGN
+    #twenty_A_six_conversion_AUG_twenty_five = -1.74 + (1.55 * x) + (1.57 * (x * x))
+    
+    #DY195 50A6 OMRONS
+    #DY195 equation used = 
+    y = cts_data_o["Cell_Flow"]
+    x = (-5.19 - (np.sqrt(44.449306*(3.704*y))) ) / 1.852
+    fifty_A_six_conversion_AUG_twenty_five = -1.74 + (1.55 * x) + (1.57 * (x * x))
+    cts_data_o["Cell_Flow"] = fifty_A_six_conversion_AUG_twenty_five 
+    
+    #TASMANIA equation
+    y = cts_data_o["Cell_Flow"]
+    x = (-1.5534 - (np.sqrt(18.4381+ (6.41 *y)))) / 3.205
+    ten_A_six_conversion_AUG_twenty_five = (2.7 *x) + -2.89
+    cts_data_o["Cell_Flow"] = ten_A_six_conversion_AUG_twenty_five 
+    
+    cts_data["Date_time"] = pd.to_datetime(cts_data["Date_time"])
+    cts_data_o["Date_time"] = pd.to_datetime(cts_data_o["Date_time"])
+    
+    fig, flow_corr= plt.subplot(1,1)
+    flow_corr.plot(cts_data["Date_time"], cts_data["Cell_Flow"], color = "green", label = "Cell_FLow_uncorrected")
+    flow_corr.plot(cts_data_o["Date_time"], cts_data_o["Cell_Flow"], color = "blue", label = "Cell_Flow_corrected")
+    plt.ylabel("Cell Flow (slpm)", fontsize = 24)
+    plt.xlabel("Date_time" ,fontsize = 24)
+    flow_corr.legend()
+    
+    return cts_data_o
+
 def ref_normalise(data, channels):
     """
     Applies the reference cell normalisation step.
@@ -1948,8 +2014,8 @@ def analyse_cals(data, data_dir, channels, molecule, cal_cylinder_conc
     print('\nsearching dataset for calibration periods')
 
     cts_data = data.copy()
-
-    # Find all flow columns and sum them to a total flow
+    
+    #back to the actual code!
     flows = [column for column in cts_data.columns
              if 'Flow' in column]
     cts_data['total_flow'] = cts_data[flows].sum(axis=1)
