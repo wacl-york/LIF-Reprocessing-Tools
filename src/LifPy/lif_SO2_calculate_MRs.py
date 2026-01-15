@@ -49,7 +49,7 @@ day_folders = lif.find_day_folders(
 cts_data = lif.read_processed_files(
     data_dir, day_folders
     )
-cts_data_cell_flow_adjusted = lif.cell_flow_adjusted(cts_data)
+cts_data_cell_flow_adjusted = lif.cell_flow_adjusted_DY195(cts_data)
 cts_data_ref_norm = lif.ref_normalise(
     cts_data, channels=channels
     )

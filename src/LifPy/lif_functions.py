@@ -1609,24 +1609,9 @@ def read_processed_files(data_dir, day_folders):
 
     return cts_data
 
-def cell_flow_adjusted(cts_data):
-    
+def cell_flow_adjusted_TAS(cts_data):
+    cts_data = cts_data
     cts_data_o = cts_data.copy()
-    # Find all flow columns and sum them to a total flow
-    #DY195 CELL FLOW ACTUAL VALUE
-    #think that the difference was 19.45%
-    #approx value calc:
-    #cts_data["Cell_Flow"] = cts_data["Cell_Flow"]*0.8155
-    
-    #IMPLEMENTATION FOR EACH CAMPAIGN
-    #twenty_A_six_conversion_AUG_twenty_five = -1.74 + (1.55 * x) + (1.57 * (x * x))
-    
-    #DY195 50A6 OMRONS
-    #DY195 equation used = 
-    y = cts_data_o["Cell_Flow"]
-    x = (-5.19 - (np.sqrt(44.449306*(3.704*y))) ) / 1.852
-    fifty_A_six_conversion_AUG_twenty_five = -1.74 + (1.55 * x) + (1.57 * (x * x))
-    cts_data_o["Cell_Flow"] = fifty_A_six_conversion_AUG_twenty_five 
     
     #TASMANIA equation
     y = cts_data_o["Cell_Flow"]
@@ -1637,7 +1622,7 @@ def cell_flow_adjusted(cts_data):
     cts_data["Date_time"] = pd.to_datetime(cts_data["Date_time"])
     cts_data_o["Date_time"] = pd.to_datetime(cts_data_o["Date_time"])
     
-    fig, flow_corr= plt.subplot(1,1)
+    fig, flow_corr= plt.subplots(1,1)
     flow_corr.plot(cts_data["Date_time"], cts_data["Cell_Flow"], color = "green", label = "Cell_FLow_uncorrected")
     flow_corr.plot(cts_data_o["Date_time"], cts_data_o["Cell_Flow"], color = "blue", label = "Cell_Flow_corrected")
     plt.ylabel("Cell Flow (slpm)", fontsize = 24)
@@ -1645,6 +1630,31 @@ def cell_flow_adjusted(cts_data):
     flow_corr.legend()
     
     return cts_data_o
+
+def cell_flow_adjusted_DY195(cts_data):
+    cts_data = cts_data
+    cts_data_o = cts_data.copy()
+    #DY195 50A6 OMRONS
+    #DY195 equation used = 
+    y = cts_data_o["Cell_Flow"]
+    x = (-5.19 - (np.sqrt(44.449306*(3.704*y))) ) / 1.852
+    fifty_A_six_conversion_AUG_twenty_five = -1.74 + (1.55 * x) + (1.57 * (x * x))
+    cts_data_o["Cell_Flow"] = fifty_A_six_conversion_AUG_twenty_five  
+    
+    cts_data["Date_time"] = pd.to_datetime(cts_data["Date_time"])
+    cts_data_o["Date_time"] = pd.to_datetime(cts_data_o["Date_time"])
+    
+    fig, flow_corr= plt.subplots(1,1)
+    flow_corr.plot(cts_data["Date_time"], cts_data["Cell_Flow"], color = "green", label = "Cell_FLow_uncorrected")
+    flow_corr.plot(cts_data_o["Date_time"], cts_data_o["Cell_Flow"], color = "blue", label = "Cell_Flow_corrected")
+    plt.ylabel("Cell Flow (slpm)", fontsize = 24)
+    plt.xlabel("Date_time" ,fontsize = 24)
+    flow_corr.legend()
+    
+    return cts_data_o
+
+
+
 
 def ref_normalise(data, channels):
     """
