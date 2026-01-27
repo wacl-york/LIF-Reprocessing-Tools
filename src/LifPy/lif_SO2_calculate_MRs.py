@@ -2,19 +2,23 @@ import lif_functions as lif
 import matplotlib.pyplot as plt
 import pandas as pd
 # --------------------- Variables to manually input --------------------------
-
+#change v little between camps!
 molecule = 'SO2'                                                                 # NO (even for multi-channel NOx) or SO2
 channels = {'sig':'SO2'}                                                         # dict of all sig channels
 cal_task = 2                                                                    # Task number associated with regular cals
 R2_limit = 0.8                                                               # Task number associated with BLC cals
 BLC = False                                                                     # Boolean indicator of whether BLC needs analysing
 plot = True                                                                     # diagnostics plots at various analysis stages
-averaging = '10S' # 5 min                                                            # averaging for the final output file
-filename = 'SO2_GRIMSAF_v1_20260105'                                 # filename for the resampled MR output
+averaging = '5 min' # 5 min                                                            # averaging for the final output file
+
+
+
+filename = 'SO2_MACE_HEAD_02_25_v1_20260121'                                 # filename for the resampled MR output
 #CYLINDER CONCS
 cal_cylinder_conc = 5100 #DY195, GRIMSAF
+#4300 is the big cylinder downstairs
 cal_cylinder_conc = 1010 #TASMANIA
-cal_cylinder_conc = #MACE HEAD                                                   # in ppb
+cal_cylinder_conc = 1140#MACE HEAD                                                   # in ppb
 #TRIMMING FOR THE CAL LENGTH
 pre_taskswitch = 1#300                                                            # data points before task switch to ignore
 post_taskswitch = 400                                                           # data points after task switch to ignore
@@ -23,11 +27,12 @@ post_peakfind = 60#200                                                          
 #REF_CTS_DIFF_LIMIT FOR EACH CAMPAIGN
 ref_cts_diff_limit = 188000  #DY195                                                    # lower limit ref_diff_cts_norm
 #ref_cts_diff_limit = 150000  #GRIMSAF   
-
+ref_cts_diff_limit = 26000 #TAS
+ref_cts_diff_limit = 70000 #MH
 #DATA DIRECTORIES
 data_dir= (r"E:\boat_SO2_data") #DY195
-data_dir = (r"") #MACE HEAD
-data_dir = (r"") #TASMANIA
+data_dir = (r"E:\LOKISO2\MACE HEAD\MACE_HEAD_SO2\rest of data") #MACE HEAD
+data_dir = (r"C:\Users\Eve\Documents\Year 2\Tasmania\TASMANIA_CAMPGAIN_DATA\All_data\FEB_27-MAR_11") #TASMANIA
 
 #DATA FOR SUBSEQUENT ANALYSIS
 #DY195
@@ -43,18 +48,35 @@ T_baseline_flagger =
 T_winds =  
 # ----------------------------------------------------------------------------
 #REMEMBER TO ENSURE THAT THE FLOWS HAVE BEEN SET TO THE CORRECT VALUE
+MH_HK = lif.import_HK_data(data_dir, day_folders)
+fig, g = plt.subplots(1,1)
+g.plot(MH_HK["Time_s"], MH_HK["SO2_ppt"], color = "r")
+mfcs = g.twinx()
+mfcs.plot(MH_HK["Time_s"], MH_HK["Cal_SB_Vl"], color = "g")
+plt.ylim(ymin = -0.1, ymax = 1.2)
+#mfcs.plot(MH_HK["Time_s"], MH_HK["ZA_SB_MFC_Read"])
+
+
+fig, o = plt.subplots(1,1)
+o.plot(MH_HK["Time_s"], MH_HK["Cell_Flow"], color = "g")
+e = o.twinx()
+e.plot(MH_HK["Time_s"], MH_HK["Cell_Pressure"], color = "r")
+
+
 day_folders = lif.find_day_folders(
     data_dir
     )
 cts_data = lif.read_processed_files(
     data_dir, day_folders
     )
-cts_data_cell_flow_adjusted = lif.cell_flow_adjusted_DY195(cts_data)
+
+plt.plot(cts_data["Cell_Flow"])
+cts_data_cell_flow_adjusted = lif.cell_flow_adjusted_TAS(cts_data)
 cts_data_ref_norm = lif.ref_normalise(
     cts_data, channels=channels
     )
 cts_data_ref_norm_time_sectioned = lif.time_frame(cts_data_ref_norm, 
-                                                  start_date = "2025-06-07 12:00:00", 
+                                                  start_date = "2025-05-29 00:00:00", 
                                                   end_date = "2025-06-25 23:00:00")
 cts_data_flagged = lif.set_flags(
     cts_data_ref_norm_time_sectioned, pre_taskswitch, post_taskswitch, pre_peakfind
@@ -81,11 +103,6 @@ plt.xlabel("Datetime")
 cts_data_single_point_plotting = lif.cal_single_point(
     cts_data_flagged, channels=channels, plot = plot
     )
-
-
-
-
-
 lif.analyse_cals(
     cts_data_zeroed, data_dir, channels=channels, molecule=molecule
     , cal_cylinder_conc=cal_cylinder_conc, plot=plot, save_csv=True

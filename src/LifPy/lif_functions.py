@@ -192,14 +192,14 @@ def gen_processing_var(data_dir, day_folders, channel_format, channel_count):
                                           )
             bin_data_dict = deinterleave_bin_data(bin_data, channel_format
                                                   , channel_count)
-            bin_data_df = pd.DataFrame.from_dict(bin_data_dict)
-            if bin_data_df['time_ms'][0] < 10000:
+            #bin_data_df = pd.DataFrame.from_dict(bin_data_dict)
+            #if bin_data_df['time_ms'][0] < 10000:
+                #bin_df.loc[i, 'is_time_reset'] = True
+            first_ms = bin_data_dict['time_ms'][0]
+            if first_ms < 0:
+                first_ms += 4294967296     
+            if first_ms < 10000:
                 bin_df.loc[i, 'is_time_reset'] = True
-            # first_ms = bin_data_dict['time_ms'][0]
-            # if first_ms < 0:
-            #     first_ms += 4294967296      
-            # if first_ms < 10000:
-            #     bin_df.loc[i, 'is_time_reset'] = True
             #the above is for the TAS data only.
        
     # Create log file index by treating is_restart as 0/1 integers and using 
@@ -554,7 +554,9 @@ def deinterleave_bin_data(bin_data, channel_format, channel_count,
             bin_data_dict[channel + '_norm'] = \
                 bin_data_dict[channel + '_lin'] \
                     / (bin_data_dict['laser_pwr_PT0'])
-    
+    #added this in to try and see if we can get to the positive time values! 21/01/2026
+    if 'time_ms' in bin_data_dict:
+        bin_data_dict['time_ms'] = bin_data_dict['time_ms'].astype(np.int64) % 4294967296
     return bin_data_dict
  
 def gen_output_file(data_dir, data_freq, file, channel_format, HK_headers_dict
@@ -721,7 +723,33 @@ def align_bin_HK(bin_data_dict, log_start_datetime_seconds, HK_data):
     index of the element in time_array closest to or immediately preceding 
     target_time.
     """
- 
+    # 1. Get the raw time array
+    raw_ms = bin_data_dict['time_ms']
+    
+    # 2. Get the first millisecond value of this specific file
+    # This is the 'zero' marker for this file.
+    first_ms_in_file = raw_ms[0]
+    
+    # 3. Calculate time relative to the start of the file, then add to log start.
+    # This cancels out the 3.8 billion offset.
+    bin_time_arr = \
+        ((raw_ms - first_ms_in_file) / 1000) + log_start_datetime_seconds
+        
+    HK_start_ind = find_min_ind(bin_time_arr[0], HK_data['Time_s']) 
+    
+    HK_end_ind = find_min_ind(bin_time_arr[-1], HK_data['Time_s'])
+    
+    if HK_start_ind == HK_end_ind:
+        print('\n--- Alignment Failure ---')
+        print(f"Log Start: {log_start_datetime_seconds}")
+        print(f"Binary File First MS: {first_ms_in_file}")
+        print(f"Calculated Absolute Time: {bin_time_arr[0]}")
+        print(f"HK Time Range: {HK_data['Time_s'][0]} to {HK_data['Time_s'][-1]}")
+        print('The log_start_datetime does not overlap with HK data.')
+        sys.exit(1)
+        
+    return bin_time_arr, HK_start_ind, HK_end_ind
+    """
     bin_time_arr = \
         (bin_data_dict['time_ms'] / 1000) + log_start_datetime_seconds
         
@@ -735,7 +763,7 @@ def align_bin_HK(bin_data_dict, log_start_datetime_seconds, HK_data):
         sys.exit(1)
         
     return bin_time_arr, HK_start_ind, HK_end_ind 
-    
+    """
 def gen_output_data(file, channel_format, data_dir, bin_data_dict, HK_data 
                     , HK_headers_dict, data_freq, bin_time_arr, HK_start_ind
                     , HK_end_ind, nan_data, processed_file, histograms):
@@ -1598,7 +1626,10 @@ def read_processed_files(data_dir, day_folders):
 
     #replacing -9999 with nan
     cts_data.replace(-9999, np.nan, inplace=True)
-    cts_data.dropna(inplace=True)
+    #cts_data.dropna(inplace=True)
+    #had to use the below for the FEB-MAR data to work. Some value is being made 
+    #to a -9999 in each line and it being ditched.
+    cts_data.dropna(subset=['Cell_Flow'], inplace=True)
     cts_data.reset_index(drop=True, inplace=True)
     # converting date_time
     cts_data.rename(columns={'mac_time_s': 'Date_time'}, inplace=True)
@@ -1610,51 +1641,119 @@ def read_processed_files(data_dir, day_folders):
     return cts_data
 
 def cell_flow_adjusted_TAS(cts_data):
+    print("Calculating actual cell flow based on the correct correction factor:")
     cts_data = cts_data
     cts_data_o = cts_data.copy()
-    
+    #old equation = 2.4245 - 2.468x = y, in eLab_Book May 2024
+    m = 2.468
+    c = -2.4245
+    #y = 2 gives a final value of 1.95, so not too far out!
     #TASMANIA equation
-    y = cts_data_o["Cell_Flow"]
-    x = (-1.5534 - (np.sqrt(18.4381+ (6.41 *y)))) / 3.205
-    ten_A_six_conversion_AUG_twenty_five = (2.7 *x) + -2.89
+    y = cts_data_o["Cell_Flow"] 
+    x = (y - c) / m
+    #new correction
+    ten_A_six_conversion_AUG_twenty_five = (2.7 *x) - 2.89
     cts_data_o["Cell_Flow"] = ten_A_six_conversion_AUG_twenty_five 
+    mean_cell_flow = np.mean(cts_data_o["Cell_Flow"])
     
     cts_data["Date_time"] = pd.to_datetime(cts_data["Date_time"])
     cts_data_o["Date_time"] = pd.to_datetime(cts_data_o["Date_time"])
     
+    d = cts_data[300:900]
+    w = cts_data_o[300:900]
+    
     fig, flow_corr= plt.subplots(1,1)
-    flow_corr.plot(cts_data["Date_time"], cts_data["Cell_Flow"], color = "green", label = "Cell_FLow_uncorrected")
-    flow_corr.plot(cts_data_o["Date_time"], cts_data_o["Cell_Flow"], color = "blue", label = "Cell_Flow_corrected")
+    flow_corr.plot(d["Date_time"], d["Cell_Flow"], color = "green", label = "Cell_Flow_uncorrected")
+    flow_corr.plot(w["Date_time"], w["Cell_Flow"], color = "blue", label = "Cell_Flow_corrected")
     plt.ylabel("Cell Flow (slpm)", fontsize = 24)
     plt.xlabel("Date_time" ,fontsize = 24)
     flow_corr.legend()
     
+    print("The average cell flow over the campaign was actually", mean_cell_flow)
+    
     return cts_data_o
+
 
 def cell_flow_adjusted_DY195(cts_data):
+    
+    # what else gets changed for the cell flow for it to be calculated?
     cts_data = cts_data
     cts_data_o = cts_data.copy()
+    
+    a = 0.926
+    b = 5.19
+    c = -1.74 
+    #y = 24, gives a final value of 18.93 :/
+    y = cts_data_o["Cell_Flow"]
     #DY195 50A6 OMRONS
     #DY195 equation used = 
-    y = cts_data_o["Cell_Flow"]
-    x = (-5.19 - (np.sqrt(44.449306*(3.704*y))) ) / 1.852
-    fifty_A_six_conversion_AUG_twenty_five = -1.74 + (1.55 * x) + (1.57 * (x * x))
+    inner_term = (b**2) - (4 * a * (c - y))
+    x = (-b + np.sqrt(inner_term)) / (2 * a)
+    #new correction
+    fifty_A_six_conversion_AUG_twenty_five = -1.74 + (1.55 * x) + (1.57 * (x**2))
+
     cts_data_o["Cell_Flow"] = fifty_A_six_conversion_AUG_twenty_five  
+    mean_cell_flow = np.mean(cts_data_o["Cell_Flow"])
     
     cts_data["Date_time"] = pd.to_datetime(cts_data["Date_time"])
     cts_data_o["Date_time"] = pd.to_datetime(cts_data_o["Date_time"])
     
+    d = cts_data#[300:900]
+    w = cts_data_o#[300:900]
+    
     fig, flow_corr= plt.subplots(1,1)
-    flow_corr.plot(cts_data["Date_time"], cts_data["Cell_Flow"], color = "green", label = "Cell_FLow_uncorrected")
-    flow_corr.plot(cts_data_o["Date_time"], cts_data_o["Cell_Flow"], color = "blue", label = "Cell_Flow_corrected")
+    flow_corr.plot(d["Date_time"], d["Cell_Flow"], color = "green", label = "Cell_Flow_uncorrected")
+    flow_corr.plot(w["Date_time"], w["Cell_Flow"], color = "blue", label = "Cell_Flow_corrected")
     plt.ylabel("Cell Flow (slpm)", fontsize = 24)
     plt.xlabel("Date_time" ,fontsize = 24)
     flow_corr.legend()
+    print("The average cell flow over the campaign was actually", mean_cell_flow)
     
     return cts_data_o
 
+def cell_flow_adjusted_MACE_HEAD(cts_data):
+    # data = data
+    # data_1 = data.copy()
+    # #a = data_1["Cell_Flow"]
+    # b = 2.184 #slpm, cell flow calc for MACE HEAD
+    
+    # #just need to replace all of the values here with the flow yes?
+    # data_1["Cell_Flow"] = b
 
+    # return data_1
+    cts_data = cts_data
+    cts_data_o = cts_data.copy()
+    #conversion used during the MACE HEAD campaign, June 2025.
+    a = 1.01
+    b = -1.54
+    c = 2.3
+    
+    y = cts_data_o["Cell_Flow"]
+    #DY195 20A6 OMRONS
+    #DY195 equation used = 
+    inner_term = (b**2) - (4 * a * (c - y))
+    x = (-b + np.sqrt(inner_term)) / (2 * a)
+    #new correction
+    twenty_A_six_conversion_AUG_twenty_five = -3.08 + (2.84 * x) + (0.392 * (x**2))
 
+    cts_data_o["Cell_Flow"] = twenty_A_six_conversion_AUG_twenty_five  
+    mean_cell_flow = np.mean(cts_data_o["Cell_Flow"])
+    
+    cts_data["Date_time"] = pd.to_datetime(cts_data["Date_time"])
+    cts_data_o["Date_time"] = pd.to_datetime(cts_data_o["Date_time"])
+    
+    d = cts_data[300:900]
+    w = cts_data_o[300:900]
+    
+    fig, flow_corr= plt.subplots(1,1)
+    flow_corr.plot(d["Date_time"], d["Cell_Flow"], color = "green", label = "Cell_Flow_uncorrected")
+    flow_corr.plot(w["Date_time"], w["Cell_Flow"], color = "blue", label = "Cell_Flow_corrected")
+    plt.ylabel("Cell Flow (slpm)", fontsize = 24)
+    plt.xlabel("Date_time" ,fontsize = 24)
+    flow_corr.legend()
+    print("The average cell flow over the campaign was actually", mean_cell_flow)
+    
+    return cts_data_o
 
 def ref_normalise(data, channels):
     """
@@ -1690,7 +1789,7 @@ def ref_normalise(data, channels):
 
     data['Date_time'] = pd.to_datetime(data['Date_time'])
     fig, ref_check = plt.subplots(1,1)
-    ref_check.plot(data['Date_time'], data['ref_diff_cts_norm'])
+    ref_check.plot(data['Date_time'], data['ref_diff_cts'])
     plt.ylabel("ref_diff_cts_norm", fontsize = 24)
     plt.xlabel("Datetime", fontsize = 24)
     plt.xticks(fontsize = 24)
@@ -1711,21 +1810,9 @@ def time_frame(cts_data_ref_norm, start_date, end_date):
         (cts_data_ref_norm_time_sectioned['Date_time'] >= start_dt) & 
         (cts_data_ref_norm_time_sectioned['Date_time'] <= end_dt)]
     
-    fig, ref_check = plt.subplots(1, 1, figsize=(12, 6))
-    ref_check.plot(
-        cts_data_ref_norm_time_sectioned['Date_time'], 
-        cts_data_ref_norm_time_sectioned['ref_diff_cts_norm'])
-    
-    plt.ylabel("ref_diff_counts_norm", fontsize=24)
-    plt.xlabel("Datetime", fontsize=24)
-    
-    plt.xticks(fontsize=24) 
-    plt.yticks(fontsize=24)
-    plt.tight_layout()
-    
     return cts_data_ref_norm_time_sectioned
 
-def set_flags(data, pre_TS, post_TS, pre_PF, post_PF, ref_cts_limit):
+def set_flags(data, pre_TS, post_TS, pre_PF, post_PF, ref_cts_diff_limit):
     """
     Sets two distinct types of flagging mechanisms within the processed data:
     a 'Peak_find_flag' to mask periods of low reference counts, and a time-based
@@ -1780,7 +1867,7 @@ def set_flags(data, pre_TS, post_TS, pre_PF, post_PF, ref_cts_limit):
     data["Task_Change"] = data.Task.shift() != data.Task
     task_switch_indices = data.index[data['Task_Change']].to_numpy()
     
-    condition_mask = data['ref_diff_cts_norm'] < ref_cts_limit
+    condition_mask = data['ref_diff_cts_norm'] < ref_cts_diff_limit
     condition_indices = data.index[condition_mask].to_numpy()
     
     for index in condition_indices:
@@ -1804,6 +1891,18 @@ def set_flags(data, pre_TS, post_TS, pre_PF, post_PF, ref_cts_limit):
     
     data.index = data['Date_time']
     data = data.drop(columns=['Task_Change'])
+    
+    fig, ref_check = plt.subplots(1, 1, figsize=(12, 6))
+    ref_check.plot(
+        data['Date_time'], 
+        data['ref_diff_cts'])
+    plt.axhline(ref_cts_diff_limit, color = "red")
+    plt.ylabel("ref_diff_counts", fontsize=24)
+    plt.xlabel("Datetime", fontsize=24)
+    
+    plt.xticks(fontsize=24) 
+    plt.yticks(fontsize=24)
+    plt.tight_layout()
     
     return data
 
@@ -1932,7 +2031,83 @@ def zero_correct_average(data, channels, plot=False):
             plt.show()
 
     return data   
+def zero_correct_TAS_twenty_sixth(data, channels, plot=False):
+    
+    print('\nCalculating zero correction')
+    
+    # use a mask to select all of the zero data associated with task 4
+    # set the index to Date_time for averaging later
+    cts_data_zero = data.copy()
+    start_of_zero = ((cts_data_zero['Task'] == 4) | (cts_data_zero['Task'] == 0)) & (cts_data_zero["Inlet_ZA_MFC_Read"] >=2.49) & (~cts_data_zero['Task'].shift(1).isin([0, 4])) 
+    cts_data_zero['zero_number'] = start_of_zero.cumsum()
+    #cts_data_zero = cts_data_zero[(cts_data_zero['Task']==4) & (cts_data_zero['Peak_find_flag']==0)]
+    cts_data_zero = ((cts_data_zero['Task']==4)| (cts_data_zero['Task'] == 0)) & (cts_data_zero['Peak_find_flag']==0)
+    
+    grouped_zeros = cts_data_zero.groupby('zero_number')
+    
+    for channel in channels:
 
+        column_name = f'{channel}_diff_cts_ref_norm'
+        
+        zero_stats = grouped_zeros.agg({
+            column_name: ['mean', 'std', 'count'],
+            'Date_time': 'mean'
+            }).dropna()
+        
+        # Flattening the MultiIndex columns
+        zero_stats.columns = ['_'.join(col).strip() for col in zero_stats.columns.values]
+        
+        # Renaming for clarity
+        zero_stats = zero_stats.rename(columns={
+            'Date_time_mean': 'zero_midpoint'
+        })
+        
+        mean_zero = zero_stats[f'{column_name}_mean'].mean()
+        std_zero = zero_stats[f'{column_name}_mean'].std()
+        lower_limit = mean_zero - 3*std_zero
+        upper_limit = mean_zero + 3*std_zero
+        spike_mask = ((zero_stats[f'{column_name}_mean'] > lower_limit)
+            & (zero_stats[f'{column_name}_mean'] < upper_limit))
+        
+        zero_stats = zero_stats[spike_mask]
+        
+        mean_zero_spikes_removed = zero_stats[f'{column_name}_mean'].mean()
+        print(f'\n{channel}:\nmean zero before spike removal = {mean_zero}'
+              f'\nmean zero after spike removal = {mean_zero_spikes_removed}')
+        
+        mean_correction = mean_zero_spikes_removed # The overall mean after spike removal
+        correction_values = np.full(len(data), mean_correction)
+        
+        data[f'{channel}_zero_offset'] = correction_values
+        data[f'{channel}_diff_cts_ref_norm_zero_corr'] = data[column_name] - correction_values
+        print(f'zero correction applied to {channel}')
+        
+        if plot:
+            
+            fig, ax = plt.subplots( 2, 1, figsize=(12, 8))
+            
+            ax[0].errorbar(zero_stats['zero_midpoint']
+                             , zero_stats[f'{column_name}_mean']
+                             , yerr=zero_stats[f'{column_name}_std']
+                             , linestyle=''
+                             , marker='o'
+                             , markersize=2
+                             , capsize=2
+                             , label='zero measurement means, +/- 1std'
+                             )
+            #ax.plot(cts_data_zero['Date_time'], cts_data_zero[column_name], label='raw zero data')
+            ax[0].plot(data['Date_time'], data[f'{channel}_zero_offset'], label='zero correction')
+            ax[0].set_xlabel('Date_time')
+            ax[0].set_ylabel(column_name)
+            ax[0].set_title(f'{channel} zero correction')
+            ax[0].legend()
+            
+            ax[1].hist(zero_stats[f'{column_name}_mean'], bins=50)
+            ax[1].set_xlabel(column_name)
+            
+            plt.show()
+
+    return data   
 def cal_single_point(data, channels, plot=False):
     
     print('\nChecking max cal point')
@@ -1949,14 +2124,6 @@ def cal_single_point(data, channels, plot=False):
     # 3. Now filter the data for the actual calculation
     cts_data_cal = data[cal_mask].copy()
     grouped_cals = cts_data_cal.groupby('cal_number')
-    
-    if 'sig_B' in channels:
-        
-        cts_data_cal['sig_B_diff_cts_ref_norm'] = np.where(
-            (cts_data_cal['BLC_0_flag'] == 1.0) & (cts_data_cal['BLC_1_flag'] == 1.0)
-            , cts_data_cal['sig_B_diff_cts_ref_norm']
-            , np.nan
-            )
     
     for channel in channels:
 
@@ -2012,7 +2179,7 @@ def cal_single_point(data, channels, plot=False):
             ax.plot(data['Date_time'], data[f'{channel}_cal_offset'], label='cal correction')
             ax.set_xlabel('Date_time')
             ax.set_ylabel(column_name)
-            ax.set_title(f'{channel} cal correction')
+            ax.set_title(f'{channel} single point (max sccm value) cal value')
             ax.legend()
             plt.show()
 
@@ -2020,7 +2187,7 @@ def cal_single_point(data, channels, plot=False):
 
 def analyse_cals(data, data_dir, channels, molecule, cal_cylinder_conc
                  , plot, save_csv, cal_task, threshold):
-
+    
     print('\nsearching dataset for calibration periods')
 
     cts_data = data.copy()
@@ -2044,7 +2211,7 @@ def analyse_cals(data, data_dir, channels, molecule, cal_cylinder_conc
     # Copy the dataframe containing only the columns of interest
     cts_data = cts_data[all_columns].copy()
 
-    # Find start of calibration periods (Task 5 starts)
+    # Find start of calibration periods (Task 2 starts)
     cts_data['start_of_cal'] = np.where(
         (cts_data['Task'] == cal_task) & (cts_data['Task'].shift(1) != cal_task)
         , 1
@@ -2053,6 +2220,573 @@ def analyse_cals(data, data_dir, channels, molecule, cal_cylinder_conc
     # Mask for calibration periods with cal SB off
     cal_task_mask = ((cts_data['Task'] == cal_task))# &
                      #(cts_data['ZA_SB_MFC_Read'] <= 0.47))
+    cts_data = cts_data[cal_task_mask]
+    # Cumulatively sum the start_of_cal flags to number the calibrations
+    cts_data['cal_number'] = cts_data['start_of_cal'].cumsum()
+
+    num_cals = cts_data['cal_number'].max()
+    print(f'\n{num_cals} calibrations found')
+
+    # --- PLOTTING SETUP ---
+    if plot:
+        ROWS = 4
+        COLS = 8
+        MAX_PLOTS = ROWS * COLS
+        plot_counter = 0
+        fig = None
+        ax = None
+    # ----------------------
+
+    fieldnames = ['cal_number', 'cal_start_date_time', 'avg_lsr_pwr', 'slope',
+                  'intercept', 'R2', 'slope_std_err']
+
+    for channel in channels:
+
+        print(f'\nAnalysing cals in {channel}:')
+
+        if save_csv:
+            file_path = os.path.join(data_dir, f'{channel}_cal_data.txt')
+            # Open the file for writing (or append if it exists)
+            txtfile = open(file_path, 'w', newline='')
+            writer = csv.DictWriter(txtfile, fieldnames=fieldnames)
+
+            writer.writeheader()
+            
+        else:
+            # Create dummy objects if not making CSV
+            writer = None
+            txtfile = None
+
+        try:
+            cts_data_cal = cts_data.copy()
+            cals = cts_data_cal.groupby('cal_number')
+
+            for cal_num, cal_df in cals:
+
+                # --- PLOTTING LOGIC START ---
+                if plot:
+                    if plot_counter % MAX_PLOTS == 0:
+                        if fig is not None:
+                            plt.tight_layout()
+                            plt.show()
+
+                        fig, ax = plt.subplots(ROWS, COLS,
+                                               figsize=(25, 12))
+                        fig.suptitle(f'Trimmed Calibration Analysis: '
+                                     f'Time-Series & Regression ({channel})',
+                                     fontsize=16)
+                        ax = ax.flatten()
+
+                    # Two plots per cal: Time-series and Regression
+                    current_ax_reg = ax[plot_counter % MAX_PLOTS]
+                    current_ax_time = ax[(plot_counter % MAX_PLOTS) + 1]
+                # --- PLOTTING LOGIC END ---
+
+                cal_df = cal_df.reset_index(drop=True).copy(deep=True)
+
+                if len(cal_df) == 0:
+                    continue
+
+                print(f'\rcal {cal_num}', end='')
+
+                cal_start_time = cal_df['Date_time'][0]
+
+                # Identify individual calibration steps (points)
+                cal_df['cal_point_switch'] = np.where(
+                    cal_df[f'Cal_{molecule}_MFC_set'] !=
+                    cal_df[f'Cal_{molecule}_MFC_set'].shift(1)
+                    , 1
+                    , 0
+                    )
+                cal_df['cal_point'] = cal_df['cal_point_switch'].cumsum()
+                cal_points = cal_df.groupby('cal_point')
+
+                # Reset steady_state column
+                cal_df['stable_cal_point'] = False
+
+                # ==========================================================
+                # --- CORRECTED STEADY-STATE (TRIM) LOGIC ---
+                # This applies a 5% trim to the start and end of EACH cal_point
+                # ==========================================================
+                for cal_point, cal_point_df in cal_points:
+
+                    point_length = len(cal_point_df)
+
+                    # Calculate the number of points to trim (5% of length)
+                    trim_n = int(np.ceil(point_length * 0.05))
+
+                    # Check if there's enough data left (> 10% trimmed)
+                    if point_length > 2 * trim_n:
+
+                        # Get indices of the middle 90% (trimmed data)
+                        stable_cal_point_indices = cal_point_df.iloc[
+                            trim_n : point_length - trim_n].index
+
+                        # Set 'stable_cal_point' to True for these indices
+                        cal_df.loc[stable_cal_point_indices,
+                                   'stable_cal_point'] = True
+                # ==========================================================
+
+                stable_cal_point_mask = cal_df['stable_cal_point'] == True
+                cal_df_filtered = cal_df[stable_cal_point_mask].copy()
+
+                regression_cols = [f'{molecule}_mr',
+                                   f'{channel}_diff_cts_ref_norm_zero_corr']
+                cal_df_cleaned = cal_df_filtered.replace(
+                    [np.inf, -np.inf], np.nan).dropna(
+                        subset=regression_cols)
+
+                # --- Prepare data for regression ---
+                X = cal_df_cleaned[f'{molecule}_mr']
+                Y = cal_df_cleaned[f'{channel}_diff_cts_ref_norm_zero_corr']
+
+                cal_laser_power = cal_df_filtered['lsr_pwr_mW'].mean()
+
+                # Check for sufficient data points before regression
+                if len(X) < 2 or X.nunique() < 2:
+                    print(' filtered data has no points')
+                    slope, intercept, r_value, p_value, \
+                        std_err_of_slope = [np.nan] * 5
+                else:
+                    slope, intercept, r_value, p_value, \
+                        std_err_of_slope = linregress(X, Y)
+
+                if plot:
+                    # ==========================================================
+                    # --- PLOT 1: TIME SERIES ---
+                    # ==========================================================
+
+                    # 1. Plot all data points against time
+                    current_ax_time.plot(cal_df['Date_time'],
+                                         cal_df[f'{channel}_diff_cts_ref_norm_zero_corr'],
+                                         label='All Data', color='gray',
+                                         linewidth=1, alpha=0.5)
+
+                    # 2. Highlight the steady-state regions
+                    current_ax_time.plot(
+                        cal_df_filtered['Date_time'],
+                        cal_df_filtered[f'{channel}_diff_cts_ref_norm_zero_corr'],
+                        label='Trimmed (90%)', color='firebrick',
+                        linewidth=1)
+
+                    # Formatting for Time Plot
+                    current_ax_time.set_title(
+                        f'Cal {cal_num} - Time Series (90% Trim)',
+                        fontsize=8)
+                    current_ax_time.tick_params(axis='both', which='major',
+                                                labelsize=6)
+                    current_ax_time.tick_params(axis='x', rotation=45)
+                    current_ax_time.set_ylabel('Signal (norm. cts)',
+                                               fontsize=7)
+                    current_ax_time.legend(loc='upper right', fontsize=6)
+
+                    # ==========================================================
+                    # --- PLOT 2: REGRESSION ---
+                    # ==========================================================
+
+                    # 1. Plot all data points for this cal (as background)
+                    current_ax_reg.scatter(
+                        cal_df[f'{molecule}_mr'],
+                        cal_df[f'{channel}_diff_cts_ref_norm_zero_corr'],
+                        label='All Data', s=5, alpha=0.3, color='gray')
+
+                    # 2. Plot filtered (trimmed) points
+                    current_ax_reg.scatter(X, Y,
+                                           label='Trimmed Data', s=10,
+                                           color='darkslateblue')
+
+                    # 3. Plot the regression line if successful
+                    if not np.isnan(slope):
+                        x_fit = np.linspace(X.min(), X.max(), 100)
+                        y_fit = slope * x_fit + intercept
+                        current_ax_reg.plot(
+                            x_fit, y_fit,
+                            label=f'Fit (R2: {r_value**2:.2f})',
+                            color='red', linestyle='--')
+                        current_ax_reg.text(
+                            0.05, 0.95, f'Slope: {slope:.2e}',
+                            transform=current_ax_reg.transAxes,
+                            verticalalignment='top', fontsize=6)
+                    else:
+                        current_ax_reg.text(
+                            0.5, 0.5, 'Regression analysis failed',
+                            transform=current_ax_reg.transAxes,
+                            verticalalignment='center',
+                            horizontalalignment='center', color='red')
+
+                    # Formatting for Regression Plot
+                    current_ax_reg.set_title(
+                        f'Cal {cal_num} - Regression', fontsize=8)
+                    current_ax_reg.tick_params(axis='both', which='major',
+                                                labelsize=6)
+                    current_ax_reg.set_xlabel('Mixing Ratio (MR)',
+                                              fontsize=7)
+                    current_ax_reg.legend(loc='lower right', fontsize=6)
+
+                    plot_counter += 2
+
+
+                new_data_to_append = {
+                    'cal_number': cal_num,
+                    'cal_start_date_time': cal_start_time,
+                    'avg_lsr_pwr': cal_laser_power,
+                    'slope': slope,
+                    'intercept': intercept,
+                    'R2': r_value**2,
+                    'slope_std_err': std_err_of_slope
+                    }
+
+                if save_csv:
+                    writer.writerow(new_data_to_append)
+
+            # After the channel loop, close the file if it was opened
+            if save_csv:
+                txtfile.close()
+
+        except Exception as e:
+            print(f"An error occurred for channel {channel}: {e}")
+            if save_csv and txtfile:
+                txtfile.close()
+            continue
+
+        # After the loop finishes, show the last partially filled figure
+        if plot and fig is not None:
+            for i in range(plot_counter % MAX_PLOTS, MAX_PLOTS):
+                ax[i].axis('off')
+            plt.tight_layout()
+            plt.show()
+            plot_counter = 0
+            fig = None
+            ax = None
+#26/01/2026: edited the following to have the histogram at the bottom of the cal factors            
+    if plot:
+
+        # Create subplots: one row per channel
+        fig, ax = plt.subplots(2, 1, 
+                               figsize=(12, 10))
+
+        # Ensure ax is always iterable even for a single channel
+        # if len(channels) == 1:
+        #     ax = [ax] 
+
+        for i, channel in enumerate(channels):
+
+            file_path = os.path.join(data_dir, f'{channel}_cal_data.txt')
+            cal_data_df = pd.read_csv(file_path)
+
+            # Filter out poor regressions (R2 < 0.75) and sort by time
+            cal_df_filtered = cal_data_df[
+                cal_data_df['R2'] >= 0.75
+            ].sort_values(by='cal_start_date_time')
+
+            # Convert time column to datetime objects
+            time_data = pd.to_datetime(
+                cal_df_filtered['cal_start_date_time'])
+            
+            # --- Plotting ---
+            
+            ax[0].errorbar(
+                time_data,                           # X-axis: Time
+                cal_df_filtered['slope'],            # Y-axis: Calibration Factor
+                yerr=cal_df_filtered['slope_std_err'], # Error bars (y-uncertainty)
+                fmt='o',                             # Format: 'o' for circles (scatter)
+                capsize=3,                           # Size of the error bar caps
+                color='darkslateblue',
+                label='calculated cal factors'
+            )
+            ax[1].hist(cal_df_filtered['slope'], bins=50, alpha=0.5, label=f'{channel} dist')
+                               
+            # --- Formatting ---
+            ax[0].set_xlabel('cal start time')
+            ax[0].set_ylabel('calibration factor')
+            ax[0].set_title(f'{channel}')
+            ax[0].legend()
+            
+            ax[1].set_xlabel('Slope Value')
+            ax[1].set_ylabel('Frequency')
+            #ax[1].set_title('Slope Distribution')
+            ax[1].legend()
+        
+            plt.tight_layout()
+            plt.show()
+            
+    
+    # --- Summary Printout ---
+    print("\n" + "="*30)
+    print("CALIBRATION QUALITY SUMMARY")
+    print("="*30)
+    
+    threshold = threshold
+    for channel in channels:
+        file_path = os.path.join(data_dir, f'{channel}_cal_data.txt')
+        if os.path.exists(file_path):
+            summary_df = pd.read_csv(file_path)
+            # Count total vs high quality
+            total_cals = len(summary_df)
+            high_quality_cals = len(summary_df[summary_df['R2'] > threshold])
+            
+            print(f"Channel: {channel}")
+            print(f"  - Total calibrations analyzed: {total_cals}")
+            print(f"  - Cals with R2 > {threshold}: {high_quality_cals} ({(high_quality_cals/total_cals*100):.1f}%)")
+        else:
+            print(f"Channel: {channel} - No calibration file found.")
+    print("="*30 + "\n")   
+    return
+        
+def analyse_BLC_cals(data, data_dir, plot, save_csv, BLC_cal_task): 
+    
+    print('\nsearching dataset for BLC calibration periods')
+    
+    cts_data = data[
+        ['sig_B_diff_cts_ref_norm_zero_corr', 'Task', 'Date_time'
+        , 'BLC_0_flag', 'BLC_1_flag', 'lsr_pwr_mW', 'Cal_NO_MFC_Read']
+        ].copy()
+    
+    cts_data['start_of_BLC_cal'] = np.where(
+        (cts_data['Task'] == BLC_cal_task) & 
+        (cts_data['Task'].shift(1) != BLC_cal_task)
+        , 1
+        , 0
+        )
+    
+    cal_task_mask = (cts_data['Task'] == BLC_cal_task)
+    cts_data = cts_data[cal_task_mask]
+    
+    cts_data['BLC_cal_number'] = cts_data['start_of_BLC_cal'].cumsum()
+    
+    num_BLC_cals = cts_data['BLC_cal_number'].max()
+    print(f'\n{num_BLC_cals} BLC calibrations found')
+    
+    # --- PLOTTING SETUP ---
+    if plot:
+        ROWS = 4
+        COLS = 4
+        MAX_PLOTS = ROWS * COLS
+        plot_counter = 0
+        fig = None
+        ax = None
+    # ----------------------
+    
+    fieldnames = ['cal_num', 'cal_start_date_time', 'avg_lsr_pwr'
+                   ,'BLC_0_v', 'BLC_1_v','conversion_efficiency',]
+    
+    print('\nAnalysing BLC cals:')
+    
+    if save_csv:
+        file_path = os.path.join(data_dir, 'BLC_cal_data.txt')
+        # Open the file for writing (or append if it exists)
+        txtfile = open(file_path, 'w', newline='')
+        writer = csv.DictWriter(txtfile, fieldnames=fieldnames)
+
+        writer.writeheader()
+        
+    else:
+        # Create dummy objects if not making CSV
+        writer = None
+        txtfile = None
+        
+    
+    cts_data_cal = cts_data.copy()
+    BLC_cals = cts_data_cal.groupby('BLC_cal_number')
+    
+    
+    for cal_num, cal_df in BLC_cals:
+        
+        # --- PLOTTING LOGIC START (Setup) ---
+        if plot:
+            # Check if a new figure is needed (1 plot per cal)
+            if plot_counter % MAX_PLOTS == 0:
+                if fig is not None:
+                    plt.tight_layout()
+                    plt.show()
+
+                # Create a new figure
+                fig, ax = plt.subplots(ROWS, COLS,
+                                       figsize=(25, 12))
+                fig.suptitle('BLC Calibration Analysis: Time-Series with Means',
+                             fontsize=16)
+                ax = ax.flatten()
+
+            current_ax = ax[plot_counter % MAX_PLOTS]
+        # --- PLOTTING LOGIC END (Setup) ---
+        
+        print(f'\rBLC cal {cal_num}', end='')
+        
+        cal_start_time = cal_df['Date_time'].iloc[0]
+        laser_power = cal_df['lsr_pwr_mW'].mean()
+        
+        
+        cal_df = cal_df.reset_index(drop=True)
+        cal_length = len(cal_df)
+        split_points = [
+            0
+            , np.round(0.25*cal_length)
+            , np.round(0.5*cal_length)
+            , np.round(0.75*cal_length)
+            ]
+        cal_df['split_points'] = np.where(
+            cal_df.index.isin(split_points)
+            , 1
+            , 0
+            )
+        cal_df['BLC_cal_quarter'] = cal_df['split_points'].cumsum()
+        cal_points = cal_df.groupby('BLC_cal_quarter')
+        
+        BLC_on = cal_df['BLC_cal_quarter'].isin([2, 4])
+        BLC_0_v = cal_df[BLC_on]['BLC_0_flag'].mean()
+        BLC_1_v = cal_df[BLC_on]['BLC_1_flag'].mean()
+        
+        quarter_means = []
+        quarter_data_list = []
+        
+        for cal_point, cal_point_df in cal_points:
+            
+            cal_point_df = cal_point_df.dropna(subset = ['sig_B_diff_cts_ref_norm_zero_corr'])
+            
+            point_length = len(cal_point_df)
+            trim_n = int(np.ceil(point_length * 0.1))
+                
+            stable_cal_point_indices = cal_point_df.iloc[
+                trim_n : point_length - trim_n].index
+            
+            mask = cal_point_df.index.isin(stable_cal_point_indices)
+            
+            stable_cal_point_df = cal_point_df[mask]
+            
+            average = stable_cal_point_df['sig_B_diff_cts_ref_norm_zero_corr'].mean()
+            
+            quarter_means.append(average)
+            quarter_data_list.append(stable_cal_point_df)
+            
+        result_dict = {
+            'Q1_Mean': quarter_means[0],
+            'Q2_Mean': quarter_means[1],
+            'Q3_Mean': quarter_means[2],
+            'Q4_Mean': quarter_means[3]
+            }
+        
+        denom = result_dict['Q1_Mean'] - result_dict['Q3_Mean']
+        
+        if np.isclose(denom, 0.0):
+            conversion_efficiency = np.nan
+        else:
+            conversion_efficiency = (
+                1 - ((result_dict['Q2_Mean']-result_dict['Q4_Mean']) / denom)
+                )
+        
+        # --- PLOTTING LOGIC CONTINUED (Drawing the Plot) ---
+        if plot:
+            # 1. Plot ALL data (background)
+            current_ax.plot(cal_df.index,
+                            cal_df['sig_B_diff_cts_ref_norm_zero_corr'],
+                            label='All Data', color='lightgray', linewidth=1)
+            
+            # 2. Plot TRIMMED data and Mean Lines
+            colors = ['darkgreen', 'darkred', 'darkgreen', 'darkred']
+            for i, df in enumerate(quarter_data_list):
+                q_mean = quarter_means[i]
+                
+                # Plot stable region trace
+                current_ax.plot(df.index,
+                                df['sig_B_diff_cts_ref_norm_zero_corr'],
+                                label=f'Q{i+1} Trimmed', linewidth=2,
+                                color=colors[i], alpha=0.8, zorder=2)
+                
+                # Plot mean line across the stable region
+                q_start = df.index.min()
+                q_end = df.index.max()
+                current_ax.hlines(q_mean, q_start, q_end,
+                                  color='black', linestyle='--', linewidth=3, zorder=3)
+                
+                # Add mean value label
+                current_ax.text(q_start + (q_end - q_start)/2, q_mean, f'{q_mean:.4f}',
+                                fontsize=6, ha='center', va='bottom', backgroundcolor='white')
+                
+                
+            # 3. Add Conversion Efficiency as Text
+            formatted_start_time = cal_start_time.strftime('%Y-%m-%d %H:%M')
+            title_text = f"Cal {cal_num} | {formatted_start_time} | Eff: {conversion_efficiency:.3f} | Pwr: {laser_power:.2f} mW"
+            current_ax.set_title(title_text, fontsize=8)
+            
+            # Formatting
+            current_ax.tick_params(axis='both', which='major', labelsize=6)
+            current_ax.set_xlabel('Index Point', fontsize=7)
+            current_ax.set_ylabel('Signal (norm. cts)', fontsize=7)
+            
+            
+            # Use specific colors for the BLC on/off status if helpful
+            # BLC_0_V / BLC_1_V are means, assuming they correspond to the status in the cal
+            
+            current_ax.text(0.95, 0.85, f'BLC 0: {BLC_0_v: .1f}V', transform=current_ax.transAxes, 
+                            fontsize=7, color='blue', ha='right')
+            current_ax.text(0.95, 0.75, f'BLC 1: {BLC_1_v: .1f}V', transform=current_ax.transAxes, 
+                            fontsize=7, color='blue', ha='right')
+            
+            current_ax.tick_params(axis='x', rotation=0)
+
+            plot_counter += 1
+        # --- PLOTTING LOGIC END (Drawing the Plot) ---
+        
+        
+        csv_row = {
+            'cal_num': cal_num,
+            'cal_start_date_time': cal_start_time,
+            'avg_lsr_pwr': laser_power,
+            'BLC_0_v': BLC_0_v,
+            'BLC_1_v': BLC_1_v,
+            'conversion_efficiency': conversion_efficiency
+            }
+        
+        if save_csv:
+            writer.writerow(csv_row)
+        
+    if save_csv:
+        txtfile.close()
+        
+    # --- PLOT CLEANUP AFTER LOOP ---
+    if plot and fig is not None:
+        # Turn off any unused subplots
+        for i in range(plot_counter % MAX_PLOTS, MAX_PLOTS):
+            ax[i].axis('off')
+        plt.tight_layout()
+        plt.show()
+#seperate function for MH, due to the cal_sb_vl being used for the last 
+#half of the campaign cals    
+def analyse_cals_MH(data, data_dir, channels, molecule, cal_cylinder_conc
+                 , plot, save_csv, cal_task, threshold):
+
+    print('\nsearching dataset for calibration periods')
+
+    cts_data = data.copy()
+    
+    #back to the actual code!
+    flows = [column for column in cts_data.columns
+             if 'Flow' in column]
+    cts_data['total_flow'] = cts_data[flows].sum(axis=1)
+    # Calculate the MR associated with the cal gas and flow
+    cts_data[f'{molecule}_mr'] = (
+        cts_data[f'Cal_{molecule}_MFC_Read'] / (cts_data['total_flow']
+        ) * cal_cylinder_conc)
+
+    # Isolate the columns of data required for the cal analysis
+    diff_cts_columns = [f'{channel}_diff_cts_ref_norm_zero_corr'
+                        for channel in channels]
+    additional_columns = ['Date_time', 'Task', 'lsr_pwr_mW',
+                          f'{molecule}_mr', f'Cal_{molecule}_MFC_Read',
+                          'ZA_SB_MFC_Read', f'Cal_{molecule}_MFC_set', 'Cal_SB_Vl']
+    all_columns = diff_cts_columns + additional_columns
+    # Copy the dataframe containing only the columns of interest
+    cts_data = cts_data[all_columns].copy()
+
+    # Find start of calibration periods (Task 5 starts)
+    cts_data['start_of_cal'] = np.where(
+        (cts_data['Task'] == cal_task) & (cts_data['Task'].shift(1) != cal_task)
+        , 1
+        , 0
+        )
+    # Mask for calibration periods with cal SB on, periods in MH cals where cal SB used to clear the line!
+    cal_task_mask = ((cts_data['Task'] == cal_task) &
+                     (cts_data['Cal_SB_Vl'] <= 0.02))
     cts_data = cts_data[cal_task_mask]
     # Cumulatively sum the start_of_cal flags to number the calibrations
     cts_data['cal_number'] = cts_data['start_of_cal'].cumsum()
@@ -2575,7 +3309,358 @@ def analyse_BLC_cals(data, data_dir, plot, save_csv, BLC_cal_task):
             ax[i].axis('off')
         plt.tight_layout()
         plt.show()
+        
+def analyse_cals_TAS_twnety_sixth(data, data_dir, channels, molecule, cal_cylinder_conc
+                 , plot, save_csv, cal_task, threshold):
     
+    print('\nsearching dataset for calibration periods')
+    print("This is for the period of 26/11 00:00 to 14:00 (UTC). Everything after this should be of the correct cal tasks.")
+
+    cts_data = data.copy()
+    
+    #back to the actual code!
+    flows = [column for column in cts_data.columns
+             if 'Flow' in column]
+    cts_data['total_flow'] = cts_data[flows].sum(axis=1)
+    # Calculate the MR associated with the cal gas and flow
+    cts_data[f'{molecule}_mr'] = (
+        cts_data[f'Cal_{molecule}_MFC_Read'] / (cts_data['total_flow']
+        ) * cal_cylinder_conc)
+
+    # Isolate the columns of data required for the cal analysis
+    diff_cts_columns = [f'{channel}_diff_cts_ref_norm_zero_corr'
+                        for channel in channels]
+    additional_columns = ['Date_time', 'Task', 'lsr_pwr_mW',
+                          f'{molecule}_mr', f'Cal_{molecule}_MFC_Read',
+                          'ZA_SB_MFC_Read', f'Cal_{molecule}_MFC_set']
+    all_columns = diff_cts_columns + additional_columns
+    # Copy the dataframe containing only the columns of interest
+    cts_data = cts_data[all_columns].copy()
+
+    # Find start of calibration periods (Task 2 starts)
+    cts_data['start_of_cal'] = np.where(
+        (cts_data['Task'] == cal_task) & (cts_data['Task'].shift(1) != cal_task)
+        , 1
+        , 0
+        )
+    # Mask for calibration periods with cal SB off
+    cal_task_mask = ((cts_data['Task'] == 4)&
+                     (cts_data['INlet_ZA_MFC_read'] <=0.1))
+    cts_data = cts_data[cal_task_mask]
+    # Cumulatively sum the start_of_cal flags to number the calibrations
+    cts_data['cal_number'] = cts_data['start_of_cal'].cumsum()
+
+    num_cals = cts_data['cal_number'].max()
+    print(f'\n{num_cals} calibrations found')
+
+    # --- PLOTTING SETUP ---
+    if plot:
+        ROWS = 4
+        COLS = 8
+        MAX_PLOTS = ROWS * COLS
+        plot_counter = 0
+        fig = None
+        ax = None
+    # ----------------------
+
+    fieldnames = ['cal_number', 'cal_start_date_time', 'avg_lsr_pwr', 'slope',
+                  'intercept', 'R2', 'slope_std_err']
+
+    for channel in channels:
+
+        print(f'\nAnalysing cals in {channel}:')
+
+        if save_csv:
+            file_path = os.path.join(data_dir, f'{channel}_cal_data.txt')
+            # Open the file for writing (or append if it exists)
+            txtfile = open(file_path, 'w', newline='')
+            writer = csv.DictWriter(txtfile, fieldnames=fieldnames)
+
+            writer.writeheader()
+            
+        else:
+            # Create dummy objects if not making CSV
+            writer = None
+            txtfile = None
+
+        try:
+            cts_data_cal = cts_data.copy()
+            cals = cts_data_cal.groupby('cal_number')
+
+            for cal_num, cal_df in cals:
+
+                # --- PLOTTING LOGIC START ---
+                if plot:
+                    if plot_counter % MAX_PLOTS == 0:
+                        if fig is not None:
+                            plt.tight_layout()
+                            plt.show()
+
+                        fig, ax = plt.subplots(ROWS, COLS,
+                                               figsize=(25, 12))
+                        fig.suptitle(f'Trimmed Calibration Analysis: '
+                                     f'Time-Series & Regression ({channel})',
+                                     fontsize=16)
+                        ax = ax.flatten()
+
+                    # Two plots per cal: Time-series and Regression
+                    current_ax_reg = ax[plot_counter % MAX_PLOTS]
+                    current_ax_time = ax[(plot_counter % MAX_PLOTS) + 1]
+                # --- PLOTTING LOGIC END ---
+
+                cal_df = cal_df.reset_index(drop=True).copy(deep=True)
+
+                if len(cal_df) == 0:
+                    continue
+
+                print(f'\rcal {cal_num}', end='')
+
+                cal_start_time = cal_df['Date_time'][0]
+
+                # Identify individual calibration steps (points)
+                cal_df['cal_point_switch'] = np.where(
+                    cal_df[f'Cal_{molecule}_MFC_set'] !=
+                    cal_df[f'Cal_{molecule}_MFC_set'].shift(1)
+                    , 1
+                    , 0
+                    )
+                cal_df['cal_point'] = cal_df['cal_point_switch'].cumsum()
+                cal_points = cal_df.groupby('cal_point')
+
+                # Reset steady_state column
+                cal_df['stable_cal_point'] = False
+
+                # ==========================================================
+                # --- CORRECTED STEADY-STATE (TRIM) LOGIC ---
+                # This applies a 5% trim to the start and end of EACH cal_point
+                # ==========================================================
+                for cal_point, cal_point_df in cal_points:
+
+                    point_length = len(cal_point_df)
+
+                    # Calculate the number of points to trim (5% of length)
+                    trim_n = int(np.ceil(point_length * 0.05))
+
+                    # Check if there's enough data left (> 10% trimmed)
+                    if point_length > 2 * trim_n:
+
+                        # Get indices of the middle 90% (trimmed data)
+                        stable_cal_point_indices = cal_point_df.iloc[
+                            trim_n : point_length - trim_n].index
+
+                        # Set 'stable_cal_point' to True for these indices
+                        cal_df.loc[stable_cal_point_indices,
+                                   'stable_cal_point'] = True
+                # ==========================================================
+
+                stable_cal_point_mask = cal_df['stable_cal_point'] == True
+                cal_df_filtered = cal_df[stable_cal_point_mask].copy()
+
+                regression_cols = [f'{molecule}_mr',
+                                   f'{channel}_diff_cts_ref_norm_zero_corr']
+                cal_df_cleaned = cal_df_filtered.replace(
+                    [np.inf, -np.inf], np.nan).dropna(
+                        subset=regression_cols)
+
+                # --- Prepare data for regression ---
+                X = cal_df_cleaned[f'{molecule}_mr']
+                Y = cal_df_cleaned[f'{channel}_diff_cts_ref_norm_zero_corr']
+
+                cal_laser_power = cal_df_filtered['lsr_pwr_mW'].mean()
+
+                # Check for sufficient data points before regression
+                if len(X) < 2 or X.nunique() < 2:
+                    print(' filtered data has no points')
+                    slope, intercept, r_value, p_value, \
+                        std_err_of_slope = [np.nan] * 5
+                else:
+                    slope, intercept, r_value, p_value, \
+                        std_err_of_slope = linregress(X, Y)
+
+                if plot:
+                    # ==========================================================
+                    # --- PLOT 1: TIME SERIES ---
+                    # ==========================================================
+
+                    # 1. Plot all data points against time
+                    current_ax_time.plot(cal_df['Date_time'],
+                                         cal_df[f'{channel}_diff_cts_ref_norm_zero_corr'],
+                                         label='All Data', color='gray',
+                                         linewidth=1, alpha=0.5)
+
+                    # 2. Highlight the steady-state regions
+                    current_ax_time.plot(
+                        cal_df_filtered['Date_time'],
+                        cal_df_filtered[f'{channel}_diff_cts_ref_norm_zero_corr'],
+                        label='Trimmed (90%)', color='firebrick',
+                        linewidth=1)
+
+                    # Formatting for Time Plot
+                    current_ax_time.set_title(
+                        f'Cal {cal_num} - Time Series (90% Trim)',
+                        fontsize=8)
+                    current_ax_time.tick_params(axis='both', which='major',
+                                                labelsize=6)
+                    current_ax_time.tick_params(axis='x', rotation=45)
+                    current_ax_time.set_ylabel('Signal (norm. cts)',
+                                               fontsize=7)
+                    current_ax_time.legend(loc='upper right', fontsize=6)
+
+                    # ==========================================================
+                    # --- PLOT 2: REGRESSION ---
+                    # ==========================================================
+
+                    # 1. Plot all data points for this cal (as background)
+                    current_ax_reg.scatter(
+                        cal_df[f'{molecule}_mr'],
+                        cal_df[f'{channel}_diff_cts_ref_norm_zero_corr'],
+                        label='All Data', s=5, alpha=0.3, color='gray')
+
+                    # 2. Plot filtered (trimmed) points
+                    current_ax_reg.scatter(X, Y,
+                                           label='Trimmed Data', s=10,
+                                           color='darkslateblue')
+
+                    # 3. Plot the regression line if successful
+                    if not np.isnan(slope):
+                        x_fit = np.linspace(X.min(), X.max(), 100)
+                        y_fit = slope * x_fit + intercept
+                        current_ax_reg.plot(
+                            x_fit, y_fit,
+                            label=f'Fit (R2: {r_value**2:.2f})',
+                            color='red', linestyle='--')
+                        current_ax_reg.text(
+                            0.05, 0.95, f'Slope: {slope:.2e}',
+                            transform=current_ax_reg.transAxes,
+                            verticalalignment='top', fontsize=6)
+                    else:
+                        current_ax_reg.text(
+                            0.5, 0.5, 'Regression analysis failed',
+                            transform=current_ax_reg.transAxes,
+                            verticalalignment='center',
+                            horizontalalignment='center', color='red')
+
+                    # Formatting for Regression Plot
+                    current_ax_reg.set_title(
+                        f'Cal {cal_num} - Regression', fontsize=8)
+                    current_ax_reg.tick_params(axis='both', which='major',
+                                                labelsize=6)
+                    current_ax_reg.set_xlabel('Mixing Ratio (MR)',
+                                              fontsize=7)
+                    current_ax_reg.legend(loc='lower right', fontsize=6)
+
+                    plot_counter += 2
+
+
+                new_data_to_append = {
+                    'cal_number': cal_num,
+                    'cal_start_date_time': cal_start_time,
+                    'avg_lsr_pwr': cal_laser_power,
+                    'slope': slope,
+                    'intercept': intercept,
+                    'R2': r_value**2,
+                    'slope_std_err': std_err_of_slope
+                    }
+
+                if save_csv:
+                    writer.writerow(new_data_to_append)
+
+            # After the channel loop, close the file if it was opened
+            if save_csv:
+                txtfile.close()
+
+        except Exception as e:
+            print(f"An error occurred for channel {channel}: {e}")
+            if save_csv and txtfile:
+                txtfile.close()
+            continue
+
+        # After the loop finishes, show the last partially filled figure
+        if plot and fig is not None:
+            for i in range(plot_counter % MAX_PLOTS, MAX_PLOTS):
+                ax[i].axis('off')
+            plt.tight_layout()
+            plt.show()
+            plot_counter = 0
+            fig = None
+            ax = None
+#26/01/2026: edited the following to have the histogram at the bottom of the cal factors            
+    if plot:
+
+        # Create subplots: one row per channel
+        fig, ax = plt.subplots(2, 1, 
+                               figsize=(12, 10))
+
+        # Ensure ax is always iterable even for a single channel
+        # if len(channels) == 1:
+        #     ax = [ax] 
+
+        for i, channel in enumerate(channels):
+
+            file_path = os.path.join(data_dir, f'{channel}_cal_data.txt')
+            cal_data_df = pd.read_csv(file_path)
+
+            # Filter out poor regressions (R2 < 0.75) and sort by time
+            cal_df_filtered = cal_data_df[
+                cal_data_df['R2'] >= 0.75
+            ].sort_values(by='cal_start_date_time')
+
+            # Convert time column to datetime objects
+            time_data = pd.to_datetime(
+                cal_df_filtered['cal_start_date_time'])
+            
+            # --- Plotting ---
+            
+            ax[0].errorbar(
+                time_data,                           # X-axis: Time
+                cal_df_filtered['slope'],            # Y-axis: Calibration Factor
+                yerr=cal_df_filtered['slope_std_err'], # Error bars (y-uncertainty)
+                fmt='o',                             # Format: 'o' for circles (scatter)
+                capsize=3,                           # Size of the error bar caps
+                color='darkslateblue',
+                label='calculated cal factors'
+            )
+            ax[1].hist(cal_df_filtered['slope'], bins=50, alpha=0.5, label=f'{channel} dist')
+                               
+            # --- Formatting ---
+            ax[0].set_xlabel('cal start time')
+            ax[0].set_ylabel('calibration factor')
+            ax[0].set_title(f'{channel}')
+            ax[0].legend()
+            
+            ax[1].set_xlabel('Slope Value')
+            ax[1].set_ylabel('Frequency')
+            #ax[1].set_title('Slope Distribution')
+            ax[1].legend()
+        
+            plt.tight_layout()
+            plt.show()
+            
+    
+    # --- Summary Printout ---
+    print("\n" + "="*30)
+    print("CALIBRATION QUALITY SUMMARY")
+    print("="*30)
+    
+    threshold = threshold
+    for channel in channels:
+        file_path = os.path.join(data_dir, f'{channel}_cal_data.txt')
+        if os.path.exists(file_path):
+            summary_df = pd.read_csv(file_path)
+            # Count total vs high quality
+            total_cals = len(summary_df)
+            high_quality_cals = len(summary_df[summary_df['R2'] > threshold])
+            
+            print(f"Channel: {channel}")
+            print(f"  - Total calibrations analyzed: {total_cals}")
+            print(f"  - Cals with R2 > {threshold}: {high_quality_cals} ({(high_quality_cals/total_cals*100):.1f}%)")
+        else:
+            print(f"Channel: {channel} - No calibration file found.")
+    print("="*30 + "\n")   
+    return
+
+
+
 def apply_cals_average(data_dir, data, channels, BLC, R2_limit):
     
     data_MRs = data.copy()
@@ -2698,7 +3783,11 @@ def save_to_csv(data_dir, filename, data):
     
     file_path = os.path.join(data_dir, f'{filename}.txt')
     data.to_csv(file_path, mode='w', header=True, index=False, sep=',') 
-    
+
+def save_to_csv_unresamp(data_dir, filename, data):
+     
+    file_path = os.path.join(data_dir, f'{filename}_still_at_normal_collection_rate.txt')
+    data.to_csv(file_path, mode='w', header=True, index=False, sep=',')    
 
 """
 This section contains functions which are specific to certain campaigns or 
@@ -3043,50 +4132,70 @@ def CARES_NO_plot_data(data_dir, filename):
           "full campaign Time Series (60-min mean) showing clean vs. other data.")
       
 def join_txt(processed_data_dir, campaign):
-    # 1. Gather all .txt files in the directory
-    # We use sorted() to help with initial ordering, though we sort by date later to be safe.
+    # 1. Gather and filter files
     files = sorted([f for f in os.listdir(processed_data_dir) if f.endswith('.txt')])
     
-    df_list = []
+    # Avoid reading the output file if it already exists
+    output_name = f"v1_{campaign}_data.txt"
+    files = [f for f in files if f != output_name]
     
+    df_list = []
     for file in files:
-        # Skip our output file if it happens to be in the same folder
-        if file == f"v1 {campaign} data.txt": #rename as filenames? or the name its given in the script? 
-            continue
-            
         file_path = os.path.join(processed_data_dir, file)
         temp_df = pd.read_csv(file_path)
         df_list.append(temp_df)
     
-    # 2. Stack all the files on top of each other
+    # 2. Combine and Sort
     combined_df = pd.concat(df_list, ignore_index=True)
-    
-    # 3. Ensure the 'Date_time' column is actual dates and sort them
     combined_df['Date_time'] = pd.to_datetime(combined_df['Date_time'])
     combined_df = combined_df.sort_values(by='Date_time').reset_index(drop=True)
     
-    campaign = campaign
-    
-    # 4. Create the full path for the new file
-    output_name = f"v1_{campaign}_data.txt"
+    # 3. Define the save path
     save_path = os.path.join(processed_data_dir, output_name)
     
-    # 5. Save the file (index=False ensures we don't save row numbers)
-    combined_df.to_csv(save_path, index=False)
+    # 4. Prepare Metadata
+    met_add = f'\nReprocessed on: {dt.now().strftime("%Y/%m/%d %H:%M:%S")}\nTimezone = UTC'
+    
+    # Load external metadata - using os.path.join for cross-platform safety
+    metadata_path = os.path.join(os.getcwd(), 'lib', 'lif_metadata.txt')
+    with open(metadata_path, 'r') as f:
+        cts_met = f.read() + met_add
+
+    # 5. Write to File
+    # First, write the metadata strings
+    with open(save_path, 'w') as f:
+        f.write(cts_met + '\n\n') # Adds a double newline before data starts
+    
+    # Second, append the DataFrame to the SAME file
+    combined_df.to_csv(save_path, mode='a', index=False)
     
     print(f"Successfully created: {save_path}")
-    
     return combined_df
 
 def SO2_plot_data(processed_data_dir, filename, campaign, version, plot = True):
     print("Loading SO2 data...")
     try:
         so2_file = os.path.join(processed_data_dir, f'{filename}.txt')
-        SO2_data = pd.read_csv(so2_file)
         
-        SO2_data['Date_time'] = (
-            pd.to_datetime(SO2_data['Date_time']).dt.floor('min')
-        )
+        # 1. Read the file to find which line 'Date_time' is on
+        with open(so2_file, 'r') as f:
+            lines = f.readlines()
+            header_line = 0
+            for i, line in enumerate(lines):
+                if 'Date_time' in line:
+                    header_line = i
+                    break
+        
+        # 2. Load the data using the discovered header row
+        SO2_data = pd.read_csv(so2_file, header=header_line)
+        print(f"Columns found: {SO2_data.columns.tolist()}")
+        # Clean column names (removes hidden spaces or \n)
+        SO2_data.columns = SO2_data.columns.str.strip()
+
+        # Convert to datetime
+        SO2_data['Date_time'] = pd.to_datetime(SO2_data['Date_time']).dt.floor('min')
+        
+        # ... rest of your plotting code ...
     
         campaign = campaign
         version = version
@@ -3101,6 +4210,48 @@ def SO2_plot_data(processed_data_dir, filename, campaign, version, plot = True):
         
         return SO2_data 
     
+    except FileNotFoundError:
+        print(f"Error: SO2 file not found in {processed_data_dir}.")
+        return None # Return None so the script doesn't crash later
+    
+def SO2_plot_data_10Hz(processed_data_dir, filename, campaign, version, plot = True):
+    print("Loading SO2 data...")
+    try:
+        so2_file = os.path.join(processed_data_dir, f'{filename}.txt')
+        
+        # 1. Read the file to find which line 'Date_time' is on
+        with open(so2_file, 'r') as f:
+            lines = f.readlines()
+            header_line = 0
+            for i, line in enumerate(lines):
+                if 'Date_time' in line:
+                    header_line = i
+                    break
+        
+        # 2. Load the data using the discovered header row
+        SO2_data = pd.read_csv(so2_file, header=header_line)
+        print(f"Columns found: {SO2_data.columns.tolist()}")
+        # Clean column names (removes hidden spaces or \n)
+        SO2_data.columns = SO2_data.columns.str.strip()
+
+        # Convert to datetime
+        SO2_data['Date_time'] = pd.to_datetime(SO2_data['Date_time'])#.dt.floor('min')
+        
+        # ... rest of your plotting code ...
+    
+        campaign = campaign
+        version = version
+        fig, o = plt.subplots(1, 1, figsize=(10, 5))
+        o.plot(SO2_data['Date_time'], SO2_data['amb_SO2_ppt'], color='blue')
+        plt.title(f"SO2 {campaign} {version}")
+        plt.xlabel("Time (UTC)",fontsize = 20)
+        plt.ylabel("SO2 (ppt)",fontsize = 20)
+        plt.xticks(fontsize = 20)
+        plt.yticks(fontsize = 20)
+        plt.show()
+        
+        return SO2_data 
+        
     except FileNotFoundError:
         print(f"Error: SO2 file not found in {processed_data_dir}.")
         return None # Return None so the script doesn't crash later
@@ -3139,11 +4290,18 @@ def SO2_plot_data_GRIMSAF(processed_data_dir, filename, campaign, version, plot 
 #-------------------------------------------------------------------------------#
 
 def DY195_flagged_periods(interuptions_csv_path, SO2_data):
+    """
+    so2_flag: spikes in so2 that seem much higher than we woudl expect (e.g. ship stack)
+    other_flag: filter changes
+    nox_flag: from the nox system. only good for ship stack.
+    comparison_flag: for when we were doing comps between the two instruments.
+    eve_tests: any tests that I decided to do with the instrument whilst onboard (e.g. inlet, zero)
+    """
     # 1. Load the interruptions file using the path provided
     interuptions = pd.read_csv(interuptions_csv_path)
     
     # 2. Clean up flags: fill empty with 0 and ensure they are integers
-    flag_cols = ['so2_flag', 'other_flag'] 
+    flag_cols = ['so2_flag', 'other_flag', 'nox_flag', 'comparison_flag', 'eve_tests'] 
     for col in flag_cols:
         if col in interuptions.columns:
             interuptions[col] = interuptions[col].fillna(0).astype(int)
@@ -3157,6 +4315,10 @@ def DY195_flagged_periods(interuptions_csv_path, SO2_data):
     # 4. Initialize flags in SO2_data as 0
     SO2_data['so2_remove'] = 0
     SO2_data['other_remove'] = 0
+    SO2_data['nox_remove'] = 0
+    SO2_data['comparison_remove'] = 0
+    SO2_data['tests_remove'] = 0
+    
 
     # 5. Apply the windows from the interruptions table
     for _, row in interuptions.iterrows():
@@ -3167,11 +4329,23 @@ def DY195_flagged_periods(interuptions_csv_path, SO2_data):
             
         if row['other_flag'] == 1:
             SO2_data.loc[mask, 'other_remove'] = 1
+            
+        if row['nox_flag'] == 1:
+            SO2_data.loc[mask, 'nox_remove'] = 1
+                
+        if row['comparison_flag'] == 1:
+            SO2_data.loc[mask, 'comparison_remove'] = 1
+            
+        if row['eve_tests'] == 1:
+            SO2_data.loc[mask, 'tests_remove'] = 1
+                    
+                
 
     # 6. Filter for clean data
     SO2_data_clean = SO2_data[
         (SO2_data['so2_remove'] == 0) & 
-        (SO2_data['other_remove'] == 0)
+        (SO2_data['other_remove'] == 0)&(SO2_data['nox_remove'] == 0) & 
+        (SO2_data['comparison_remove'] == 0)&(SO2_data['tests_remove'] == 0)
     ].copy()
     plt.figure(figsize=(10, 5))
     plt.plot(SO2_data_clean["Date_time"], SO2_data_clean["amb_SO2_ppt"])
@@ -3181,6 +4355,103 @@ def DY195_flagged_periods(interuptions_csv_path, SO2_data):
     plt.yticks(fontsize = 16)
     plt.show()
     return SO2_data_clean
+
+def DY195_comparison_periods(interuptions_csv_path, SO2_data):
+    # 1. Load the interruptions file using the path provided
+    interuptions = pd.read_csv(interuptions_csv_path)
+    
+    # 2. Clean up flags: fill empty with 0 and ensure they are integers
+    flag_cols = ['comparison_flag'] 
+    for col in flag_cols:
+        if col in interuptions.columns:
+            interuptions[col] = interuptions[col].fillna(0).astype(int)
+
+    # 3. Ensure time columns are datetime objects
+    # Use errors='coerce' just in case there's bad text in the date columns
+    SO2_data['Date_time'] = pd.to_datetime(SO2_data['Date_time'])
+    interuptions['Start'] = pd.to_datetime(interuptions['Start'], dayfirst=True)
+    interuptions['End'] = pd.to_datetime(interuptions['End'], dayfirst=True)
+
+    # 4. Initialize flags in SO2_data as 0   
+    SO2_data['comparison_remove'] = 1
+
+    # 5. Apply the windows from the interruptions table
+    for _, row in interuptions.iterrows():
+        mask = (SO2_data['Date_time'] >= row['Start']) & (SO2_data['Date_time'] <= row['End'])
+                
+        if row['comparison_flag'] == 1:
+            SO2_data.loc[mask, 'comparison_remove'] = 0
+    #now we want to keep the data that we originally removing with the 1 and 0 logic, so it needs to be reversed!                
+    # 6. Filter for clean data
+    SO2_data_clean = SO2_data[
+        (SO2_data['comparison_remove'] == 0)
+    ].copy()
+    plt.figure(figsize=(10, 5))
+    plt.plot(SO2_data_clean["Date_time"], SO2_data_clean["amb_SO2_ppt"])
+    plt.title("Cleaned SO2 Data (Flagged Periods Removed)",fontsize = 16)
+    plt.ylabel("SO2 (ppt)",fontsize = 16)
+    plt.xticks(fontsize = 16)
+    plt.yticks(fontsize = 16)
+    plt.show()
+    SO2_data_clean = SO2_data_clean.drop(columns=[ 'comparison_remove'], errors='ignore')
+    
+    return SO2_data_clean
+
+def DY195_flagged_periods_for_keeping_spikes(interuptions_csv_path, SO2_data):
+    """
+    Currently removes the compairson data, but this can be easily put back in!
+    """
+    # 1. Load the interruptions file using the path provided
+    interuptions = pd.read_csv(interuptions_csv_path)
+    
+    # 2. Clean up flags: fill empty with 0 and ensure they are integers
+    flag_cols = ['other_flag', 'comparison_flag', 'eve_tests'] 
+    for col in flag_cols:
+        if col in interuptions.columns:
+            interuptions[col] = interuptions[col].fillna(0).astype(int)
+
+    # 3. Ensure time columns are datetime objects
+    # Use errors='coerce' just in case there's bad text in the date columns
+    SO2_data['Date_time'] = pd.to_datetime(SO2_data['Date_time'])
+    interuptions['Start'] = pd.to_datetime(interuptions['Start'], dayfirst=True)
+    interuptions['End'] = pd.to_datetime(interuptions['End'], dayfirst=True)
+
+    # 4. Initialize flags in SO2_data as 0
+    SO2_data['other_remove'] = 0
+    SO2_data['comparison_remove'] = 0
+    SO2_data['tests_remove'] = 0
+    
+
+    # 5. Apply the windows from the interruptions table
+    for _, row in interuptions.iterrows():
+        mask = (SO2_data['Date_time'] >= row['Start']) & (SO2_data['Date_time'] <= row['End'])
+         
+        if row['other_flag'] == 1:
+            SO2_data.loc[mask, 'other_remove'] = 1
+     
+        if row['comparison_flag'] == 1:
+            SO2_data.loc[mask, 'comparison_remove'] = 1
+            
+        if row['eve_tests'] == 1:
+            SO2_data.loc[mask, 'tests_remove'] = 1
+                    
+    # 6. Filter for clean data
+    SO2_data_clean = SO2_data[
+        (SO2_data['other_remove'] == 0)& 
+        (SO2_data['comparison_remove'] == 0)&(SO2_data['tests_remove'] == 0)
+    ].copy()
+    plt.figure(figsize=(10, 5))
+    plt.plot(SO2_data_clean["Date_time"], SO2_data_clean["amb_SO2_ppt"])
+    plt.title("Cleaned SO2 Data (Flagged Periods Removed)",fontsize = 16)
+    plt.ylabel("SO2 (ppt)",fontsize = 16)
+    plt.xticks(fontsize = 16)
+    plt.yticks(fontsize = 16)
+    plt.show()
+    
+    SO2_data_clean = SO2_data_clean.drop(columns=['other_remove', 'comparison_remove', 'tests_remove'], errors='ignore')
+    
+    return SO2_data_clean
+
 
 def load_all_winds_DY195(folder_path):
     all_data = []
@@ -3211,11 +4482,56 @@ def load_all_winds_DY195(folder_path):
         print("Success: All data combined and sorted.")
         return combined_df
 
+
 def load_ship_track(underway_file_path, filtered_DY195_SO2_data):
-    # 1. Use a more robust separator and remove quotes at the engine level
     df = pd.read_csv(underway_file_path, sep=None, engine='python', quotechar='"')
+    df['time_1min'] = pd.to_datetime(df['time_1min'], dayfirst=False)
     
-    df['time_1min'] = pd.to_datetime(df['time_1min'], dayfirst = False)
+    fig, ax = plt.subplots(figsize=(10, 8))
+    ax.set_facecolor('lightcyan')
+
+    # 1. Plot the main ship track
+    ax.plot(df["lon_deg_1min"], df["lat_deg_1min"],
+            color='blue', linewidth=1, label='Ship Track', alpha=0.7)
+
+    # 2. Filter for specific time intervals (00, 06, 12, 18)
+    # We look for rows where the minute is 0 and the hour is in our list
+    intervals = [0, 12, 20]
+    time_markers = df[df['time_1min'].dt.hour.isin(intervals) & (df['time_1min'].dt.minute == 0)]
+
+    # 3. Plot and label these points
+    for i, row in time_markers.iterrows():
+        # Plot a small dot for the time marker
+        ax.scatter(row["lon_deg_1min"], row["lat_deg_1min"], color='red', s=20, zorder=6)
+        
+        # Create a label string (e.g., "15-May 06:00")
+        label = row['time_1min'].strftime('%d-%b %H:%M')
+        
+        # Add text label with a small offset so it doesn't overlap the line
+        ax.annotate(label, 
+                    (row["lon_deg_1min"], row["lat_deg_1min"]),
+                    textcoords="offset points", 
+                    xytext=(5,5), 
+                    fontsize=9,
+                    fontweight='bold',
+                    color='darkred')
+
+    # Start and end points
+    ax.scatter(df["lon_deg_1min"].iloc[0], df["lat_deg_1min"].iloc[0],
+               color='black', marker='x', s=100, label='Start', zorder=7)
+    ax.scatter(df["lon_deg_1min"].iloc[-1], df["lat_deg_1min"].iloc[-1],
+               color='black', marker='x', s=100, label='End', zorder=7)
+
+    # Labels and styling
+    ax.set_xlabel("Longitude", fontsize=16)
+    ax.set_ylabel("Latitude", fontsize=16)
+    ax.set_title("Ship Track with Time Markers (DY195)", fontsize=20)
+    ax.grid(True, linestyle='--', alpha=0.6)
+    ax.legend()
+    
+    plt.tight_layout()
+    plt.show()
+    
     fig, ax1 = plt.subplots(1,1)
     # Plotting COG
     ax1.plot(df['time_1min'], df["COG_deg_1min"], color="red", label="COG", alpha=0.7)
@@ -3233,6 +4549,26 @@ def load_ship_track(underway_file_path, filtered_DY195_SO2_data):
     
     return df
 
+def time_frame_shorter_if_needed(cts_data_ref_norm, start_date, end_date):
+    start_dt = pd.to_datetime(start_date)
+    end_dt = pd.to_datetime(end_date)
+    
+    cts_data_ref_norm_time_sectioned = cts_data_ref_norm.copy()
+    
+    #this is for one timeframe
+    cts_data_ref_norm_time_sectioned['Date_time'] = pd.to_datetime(cts_data_ref_norm_time_sectioned['Date_time'])
+    
+    cts_data_ref_norm_time_sectioned = cts_data_ref_norm_time_sectioned[
+        (cts_data_ref_norm_time_sectioned['Date_time'] >= start_dt) & 
+        (cts_data_ref_norm_time_sectioned['Date_time'] <= end_dt)]
+    
+    fig, l = plt.subplots(1,1)
+    l.plot(cts_data_ref_norm_time_sectioned["Date_time"], cts_data_ref_norm_time_sectioned["amb_SO2_ppt"])
+    plt.xlabel("Date_time", fontsize = 20)
+    plt.ylabel("SO2 (ppt)", fontsize = 20)
+    
+    
+    return cts_data_ref_norm_time_sectioned
 #need to fix!!
 def DY195_in_sector(underway_data, filtered_DY195_SO2_data):
     # 1. Ensure Date_time is a column (Fixes the KeyError)
@@ -3289,18 +4625,47 @@ def DY195_in_sector(underway_data, filtered_DY195_SO2_data):
     plt.show() 
     
     # IMPORTANT: Reset the index here before returning so your NEXT functions don't fail!
-    return df_reindexed.reset_index().rename(columns={'index': 'Date_time'})
-    return df_reindexed.reset_index().rename(columns={'index': 'time_1min'})
+    # 7. Final Clean-up: Reset index, rename, and DROP COG column
+    # We use errors='ignore' just in case the column was already missing
+    return (df_reindexed
+            .reset_index()
+            .rename(columns={'index': 'Date_time'})
+            .drop(columns=['COG_deg_1min'], errors='ignore'))
 
-def DY195_in_sector_5min(underway_data, SO2_1min_in_sector):
+def restart_removed (data):
+    data = data
+    #need to remove the time period of 8-9:15
+
+    data['Date_time'] = pd.to_datetime(data['Date_time'])
+    
+    start_time = datetime.time(8, 0, 0)
+    end_time = datetime.time(9, 30, 0)
+    
+    # 3. Create a mask for the "bad" time window
+    # This checks the TIME part of every date in the column
+    time_only = data['Date_time'].dt.time
+    mask = (time_only >= start_time) & (time_only <= end_time)
+    
+    # 4. Use ~ to keep everything NOT in the mask
+    cleaned_df = data[~mask].copy()
+    cleaned_df["Date_time"] = pd.to_datetime(cleaned_df["Date_time"])
+    fig, clean_data = plt.subplots(1,1)
+    clean_data.plot(cleaned_df["Date_time"], cleaned_df["amb_SO2_ppt"])
+    plt.ylabel("SO2 (ppt)", fontsize = 20)
+    plt.xlabel("Datetime", fontsize = 20)
+    plt.title("SO2 in sector, interuptions removed, DY195", fontsize = 20)
+    
+    return cleaned_df
+
+def DY195_in_sector_5min(underway_data, SO2_data):
     # 1. Prepare underway data: Set index and Resample to 5 min
     # We use .first() for COG to avoid circular mean errors
     underway_data['time_1min'] = pd.to_datetime(underway_data['time_1min'])
     uw_5min = underway_data.set_index('time_1min').resample('5min').first()
     
     # 2. Prepare SO2 data: Set index and Resample to 5 min
-    SO2_1min_in_sector['Date_time'] = pd.to_datetime(SO2_1min_in_sector['Date_time'])
-    so2_5min = SO2_1min_in_sector.set_index('Date_time').resample('5min').mean()
+    SO2_data['Date_time'] = pd.to_datetime(SO2_data['Date_time'])
+    so2_5min = SO2_data.set_index('Date_time')
     
     fig, so2_timeseries = plt.subplots(1,1)
     so2_timeseries.plot(so2_5min.index, so2_5min["amb_SO2_ppt"])
@@ -3366,8 +4731,13 @@ def DY195_in_sector_diurnal_1min(SO2_1min_in_sector):
     #DOING with 1min averaged data!
     SO2_in_sector_1_min_for_hour['hour'] = SO2_in_sector_1_min_for_hour['Date_time'].dt.hour
     grouped = SO2_in_sector_1_min_for_hour.groupby('hour')['amb_SO2_ppt']
+    
+    #DOING MEAN DIURNALS
     diurnal_mean_1_1 = grouped.mean()
     diurnal_se_1_1 = grouped.sem()
+    
+
+    
     fig, SO2_1min_1hour = plt.subplots(figsize = (10,5))
     SO2_1min_1hour.plot(diurnal_mean_1_1.index, diurnal_mean_1_1.values, 
                         marker='o', linestyle='-', color='black', label='Mean SO₂')
@@ -3379,7 +4749,7 @@ def DY195_in_sector_diurnal_1min(SO2_1min_in_sector):
         color='green', alpha=0.3, label='±1 SE'
     )
     # Styling
-    plt.title("1hour diurnal (from 1min averaging)", fontsize = 20)
+    plt.title("1hour diurnal of SO2 (DY195, whole cruise)", fontsize = 20)
     plt.xlabel("Hour of day (UTC -1)", fontsize=22)
     plt.ylabel("SO₂ (ppt)", fontsize=22)
     plt.xticks(range(0, 24), fontsize=22)
@@ -3389,7 +4759,7 @@ def DY195_in_sector_diurnal_1min(SO2_1min_in_sector):
     #mpl.rcParams['svg.fonttype'] = 'none'
     plt.tight_layout()
     
-    # --- 1min average to a 10min resolution diurnal (144 bins) ---
+    #10MIN BINS DIURNAL
     SO2_in_sector_1_min_for_10_mins['time_of_day'] = SO2_in_sector_1_min_for_10_mins['Date_time'].dt.floor("10min").dt.time
     
     # 2. Filter the raw data (Removing the contamination)
@@ -3433,7 +4803,87 @@ def DY195_in_sector_diurnal_1min(SO2_1min_in_sector):
     ax.set_xticklabels(tick_labels, rotation=45, fontsize=22)
     plt.yticks(fontsize=22)
 
-    ax.set_title("10-minute Diurnal Cycle (Full 24h Axis)", fontsize=20)
+    ax.set_title("10-minute Diurnal Cycle (SO2, DY195 whole cruise)", fontsize=20)
+    ax.set_xlabel("Hour of day (UTC-1)", fontsize=22)
+    ax.set_ylabel("$SO_2$ (ppt)", fontsize=22) 
+    ax.legend(fontsize=18)
+    
+    plt.tight_layout()
+    plt.show()
+    
+    ######-----------#######
+    #DOING MEDIANS
+    diurnal_median_1_1 = grouped.median()
+    diurnal_se_1_1 = grouped.sem()
+    
+   
+    fig, SO2_1min_1hour = plt.subplots(figsize = (10,5))
+    x_values = diurnal_median_1_1.index.astype(str)
+    SO2_1min_1hour.plot(x_values, diurnal_median_1_1.values, 
+                        marker='o', linestyle='-', color='black', label='Median $SO_2$')
+    # Plot shaded SE band
+    SO2_1min_1hour.fill_between(
+        x_values,
+        diurnal_median_1_1 - diurnal_se_1_1,
+        diurnal_median_1_1 + diurnal_se_1_1,
+        color='orange', alpha=0.3, label='±1 SE'
+    )
+    # Styling
+    plt.title("1hour diurnal of SO2 (DY195, whole cruise)", fontsize = 20)
+    plt.xlabel("Hour of day (UTC -1)", fontsize=22)
+    plt.ylabel("SO₂ (ppt)", fontsize=22)
+    plt.xticks(range(0, 24), fontsize=22)
+    plt.yticks(fontsize=22)
+    plt.legend(fontsize=22)
+    #import matplotlib as mpl
+    #mpl.rcParams['svg.fonttype'] = 'none'
+    plt.tight_layout()
+    
+    #10MIN BINS DIURNAL
+    SO2_in_sector_1_min_for_10_mins['time_of_day'] = SO2_in_sector_1_min_for_10_mins['Date_time'].dt.floor("10min").dt.time
+    
+    # 2. Filter the raw data (Removing the contamination)
+    mask_to_remove = (SO2_in_sector_1_min_for_10_mins['Date_time'].dt.hour == 7) & \
+                     (SO2_in_sector_1_min_for_10_mins['Date_time'].dt.minute <= 30)
+    df_filtered = SO2_in_sector_1_min_for_10_mins[~mask_to_remove].copy()
+    
+    # 3. Group the filtered data
+    grouped = df_filtered.groupby('time_of_day')['amb_SO2_ppt']
+    diurnal_median_1_10 = grouped.median(numeric_only = True)
+    diurnal_se_1_10 = grouped.sem(numeric_only = True)
+    
+    # --- THE FIX: Reindex to a full 24-hour day ---
+    # This ensures 07:00 exists in the index even if it has no data
+    full_day_range = pd.date_range("00:00", "23:50", freq="10min").time
+    diurnal_median_1_10 = diurnal_median_1_10.reindex(full_day_range)
+    diurnal_se_1_10 = diurnal_se_1_10.reindex(full_day_range)
+
+    # 4. Prepare Plotting Coordinates
+    x_vals_1_10 = np.arange(len(diurnal_mean_1_10)) # Always 144
+    
+    # 5. Guaranteed 24-Hour Ticks (Finding HH:00 in the full skeleton)
+    tick_indices = [i for i, t in enumerate(diurnal_median_1_10.index) if t.minute == 0]
+    tick_labels = [diurnal_median_1_10.index[i].strftime("%H:00") for i in tick_indices]
+
+           
+    fig, ax = plt.subplots(figsize=(15, 6))
+    
+    # 6. Plot (Using .values to handle the NaNs correctly)
+    ax.plot(x_vals_1_10, diurnal_median_1_10.values, 
+            marker='o', markersize=4, linestyle='-', color='black', label='Median $SO_2$')
+    ax.fill_between(
+        x_vals_1_10, 
+        diurnal_median_1_10.values - diurnal_se_1_10.values,
+        diurnal_median_1_10.values + diurnal_se_1_10.values,
+        color='orange', alpha=0.3, label='±1 SE'
+    )
+    
+    # Display the combined figure
+    ax.set_xticks(tick_indices)
+    ax.set_xticklabels(tick_labels, rotation=45, fontsize=22)
+    plt.yticks(fontsize=22)
+
+    ax.set_title("10-minute Diurnal Cycle (SO2, DY195 whole cruise)", fontsize=20)
     ax.set_xlabel("Hour of day (UTC-1)", fontsize=22)
     ax.set_ylabel("$SO_2$ (ppt)", fontsize=22) 
     ax.legend(fontsize=18)
@@ -3786,7 +5236,23 @@ def cloud_fraction(cloud_fraction_data_path, SO2_1min_in_sector):
 #     ax2.legend(fontsize=18)
 #     plt.tight_layout()
 #     plt.show() 
-
+def timezone_conversion_DY195(data):
+    UTC_back_one = pytz.timezone("Atlantic/Cape_Verde")
+    time_zone_converted_data = data.copy()
+    print("Data becoming Australian")
+    time_zone_converted_data['Date_time'] = pd.to_datetime(time_zone_converted_data['Date_time'], utc=True).dt.tz_convert(UTC_back_one)
+    
+    #pick a random bit of the data to test that it has actually shifted the data to the right timezone!
+    time_conv_subset = time_zone_converted_data.loc[300:900]
+    time_utc = data.loc[300:900]
+    
+    fig, time_corr = plt.subplots(1,1)
+    time_corr.plot(time_utc["Date_time"], time_utc["amb_SO2_ppt"], 
+                   color = "lightseagreen", label = "UTC")
+    time_corr.plot(time_conv_subset["Date_time"], time_conv_subset["amb_SO2_ppt"], 
+                   color = "purple", label = "UTC-1")
+    plt.legend(loc='best')
+    return time_zone_converted_data
 #-------------------------------------------------------------------------------#
                             #MACE HEAD RELEVANT FUNCTIONS
 #-------------------------------------------------------------------------------#     
@@ -3874,6 +5340,13 @@ def load_baseline_flagger(data_dir_MH_base, MH_Baseline, SO2_data):
     # This keeps every SO2 point that fell into a 2h window starting with flag 10-19
     SO2_filtered = SO2_with_flags[
         (SO2_with_flags['B'] >= 10) & (SO2_with_flags['B'] < 20)].copy()
+    SO2_filtered["Date_time"] = pd.to_datetime["Date_time"]
+    #plot out the filtered baseline data
+    fig, i = plt.subplots(1,1)
+    i.plot(SO2_filtered["Date_time"], SO2_filtered["amb_SO2_ppt"])
+    plt.xlabel("Datetime", fontsize = 20)
+    plt.ylabel("SO2 (ppt)", fontsize = 20)
+    plt.title("SO2 at Mace Head in the baseline sector", fontsize = 20)
 
     return SO2_filtered
 #-------------------------------------------------------------------------------#
@@ -3988,7 +5461,7 @@ def Tas_baseline(T_baseline_flagger_path, data):
     five_min_resample.to_csv(output_filename, index=False)
     return SO2_in_baseline
 
-def timezone_conversion(data):
+def timezone_conversion_AEDT(data):
     aedt = pytz.timezone("Australia/Sydney")
     time_zone_converted_data = data.copy()
     print("Data becoming Australian")
