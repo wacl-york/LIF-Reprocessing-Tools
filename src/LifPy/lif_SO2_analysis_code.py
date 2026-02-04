@@ -31,11 +31,8 @@ wind_folder = (r"E:\DY195 FLUX WEATHER DATA\Week 1 to 3 v2")
 interuptions_csv_path = r"C:\Users\Eve\Documents\Year 2\Tasmania\phins reprocessing code test\editing_for_the_shift\CARES BOAT interuptions.csv"
 underway_file_path = r"C:\Users\Eve\Documents\Year 2\CARES\BOAT DATA_other\Underway_1min.csv"
 cloud_fraction_data_path = r"C:\Users\Eve\Documents\Year 2\CARES\cloud fraction (DY195).csv"
-processed_data_dir = (r"E:\boat_SO2_data\corr flow\1min avg\1 min time sep")
-#ppt_data = lif.join_txt(processed_data_dir, campaign = "DY195")
-SO2_data = lif.SO2_plot_data_10Hz(processed_data_dir,
-                filename = "v1_DY195_data_no_header", 
-                campaign = "DY195", version = "v1")
+
+
 
 """
 fig, j=plt.subplots(1,1)
@@ -70,14 +67,23 @@ df = pd.read_csv(r"E:\boat_SO2_data\corr flow\1min avg\1 min time sep\v1_DY195_d
 #######------------------------------------------########
 #SAVING DATA WHICH STILL HAS THE SPIKES WITHIN IT
 #######------------------------------------------########
-SO2_data_spikes = lif.DY195_flagged_periods_for_keeping_spikes(interuptions_csv_path, df)
+processed_data_dir = (r"E:\zeroboattests\using a imls for the zero")
+#ppt_data = lif.join_txt(processed_data_dir, campaign = "DY195")
+SO2_data = lif.SO2_plot_data(processed_data_dir,
+                filename = "SO2_data_DY195_07-18_interp_c_k1_zero_imls_removal_v1_1min_avg_20250204", 
+                campaign = "DY195", version = "v1")
+
+SO2_data_spikes = lif.DY195_flagged_periods_for_keeping_spikes(interuptions_csv_path, SO2_data)
 SO2_restart_removed = lif.restart_removed(SO2_data_spikes)
-filename ="1min avg cruise data, removed only comp, filter and eve tests, restart periods (1hr 30m after) removed"
+filename ="1min c (k1)  zeros (imls 40minute window)  no end removal(07 to 18)"
 lif.save_to_csv(processed_data_dir, filename, SO2_restart_removed)
 #now spat out the datafile, so we can plot it up with the CIMS dat
-#comparison periods
-SO2_comparison_periods = lif.DY195_comparison_periods(interuptions_csv_path, SO2_data)
 
+#comparison periods retained only
+SO2_comparison_periods = lif.DY195_comparison_periods(interuptions_csv_path, df)
+SO2_restart_removed = lif.restart_removed(SO2_comparison_periods)
+filename ="1min avg cruise data, comp periods only retained"
+lif.save_to_csv(processed_data_dir, filename, SO2_restart_removed)
 
 
 
