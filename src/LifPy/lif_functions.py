@@ -459,63 +459,9 @@ def import_bin_data(data_dir, date, file):
     
     return bin_data_array
 
+#test function!
 def deinterleave_bin_data(bin_data, channel_format, channel_count,
-                           rep_rate_Hz=200000):
-    """
-    De-interleaves raw binary data from multiple channels, combines high/low 
-    bytes where necessary, applies calibration, and calculates derived metrics.
-
-    Raw data is assumed to be interleaved by channel. The function processes 
-    each channel based on the provided format dictionary and calculates 
-    corrected and normalized counts.
-
-    Parameters
-    ----------
-    binary_data : numpy.ndarray
-        A 1D array of raw, interleaved data points.
-    channel_format : dict
-        A dictionary mapping output channel names (str) to their input indices 
-        (int) or high/low index pairs (list of int).
-        - Value as int (e.g., 2): Single channel index.
-        - Value as list [int, int] (e.g., [3, 4]): High-byte, Low-byte indices.
-    channel_count : int
-        The total number of channels (interleaving factor).
-    rep_rate_Hz : int, optional
-        The repetition rate (in Hz) of the laser, used to 
-        calculate the maximum theoretical count rate. Default is 200000.
-
-    Returns
-    -------
-    tuple
-        - binary_data_dict (dict): A dictionary containing all de-interleaved, 
-          combined, and derived data channels. Keys include original channel 
-          names, plus '_lin' (linearized) and '_norm' (normalized) for count 
-          data.
-        - lag (float or np.nan): The time difference (in ms) of a detected 
-          large time step, or NaN if no significant lag is found.
-
-    Notes
-    -----
-    - **De-interleaving:** 
-        Uses slicing (frames[idx::channel_count]) to separate the interleaved 
-        channels.
-    - **Byte Combination (if channel_ID is a list):** 
-        Combines 16-bit high-byte (multiplied by 65536) and 16-bit low-byte 
-        channels to form a 32-bit value.
-    - **Laser Power:** 
-        'laser_pwr_PT0' is converted from system units to mW by dividing by 
-        100,000.
-    - **Count Correction:**
-        - Values exceeding the maximum theoretical count rate 
-          (rep_rate_Hz / 100) are set to NaN.
-        - Linearized counts (`_lin`) are calculated using:
-          -ln(1 - (cts / max_cts)) * max_cts
-        - Normalized counts (`_norm`) are calculated using:
-          cts / laser power 
-    - **Lag Calculation:** 
-        Attempts to find a time step close to 20,000 ms (20 seconds) in the 
-        'time_ms' channel to identify a potential data break or lag.
-    """
+                           file, data_dir, rep_rate_Hz=200000):    
     
     frames = np.array(bin_data)
     decimate_arr = [frames[idx::channel_count] for idx in range(channel_count)]
@@ -543,23 +489,61 @@ def deinterleave_bin_data(bin_data, channel_format, channel_count,
 
     max_cts = rep_rate_Hz / 100
 
+#testing a new function format!
+    processing_variables = pd.read_csv(os.path.join(
+         data_dir, 'processing_variables.txt')
+         )
+    this_file_index = processing_variables[
+         processing_variables['bin_filename'] == file].index[0]
+
+    for channel in bin_data_dict.keys():
+        bin_data_dict[channel] = bin_data_dict[channel].astype(float)
+    for col in processing_variables.columns:
+        if '_shift' in col:
+            # Get the actual channel name (e.g., 'sig_counts' from 'sig_counts_shift')
+            for suffix in ['']:
+                channel_name = col.replace('_shift' , suffix)
+            # Check if this channel exists in our data
+            
+                if channel_name in bin_data_dict:
+                    shift_val = int(float(processing_variables[col][this_file_index]))
+                    
+                    if shift_val == 0:
+                        continue
+                        
+                    data = bin_data_dict[channel_name]
+                    orig_len = len(data)
+                    
+                    if shift_val > 0:
+                        # Move Right: Pad start, trim end
+                        shifted = np.pad(data, (shift_val, 0), mode='constant', constant_values=np.nan)
+                        bin_data_dict[channel_name] = shifted[:orig_len]
+                    else:
+                        # Move Left: Pad end, trim start
+                        abs_s = abs(shift_val)
+                        shifted = np.pad(data, (0, abs_s), mode='constant', constant_values=np.nan)
+                        bin_data_dict[channel_name] = shifted[abs_s:]
+                    
+                    print(f"Applied shift of {shift_val} to {channel_name}")
     for channel in list(channel_format):
         if 'counts' in channel:
             bin_data_dict[channel] = \
                 np.array([cts if cts < max_cts else np.nan for cts \
                           in bin_data_dict[channel]])
-
+    
             bin_data_dict[channel + '_lin'] = \
                 -np.log(1 - (bin_data_dict[channel] / max_cts)) * max_cts
-
+    
             bin_data_dict[channel + '_norm'] = \
                 bin_data_dict[channel + '_lin'] \
                     / (bin_data_dict['laser_pwr_PT0'])
     #added this in to try and see if we can get to the positive time values! 21/01/2026
-    if 'time_ms' in bin_data_dict:
-        bin_data_dict['time_ms'] = bin_data_dict['time_ms'].astype(np.int64) % 4294967296
+    #if 'time_ms' in bin_data_dict:
+       # bin_data_dict['time_ms'] = bin_data_dict['time_ms'].astype(np.int64) % 4294967296
     return bin_data_dict
- 
+
+
+
 def gen_output_file(data_dir, data_freq, file, channel_format, HK_headers_dict
                     , HK_data, date, bin_data_dict):
    """
@@ -632,9 +616,13 @@ def gen_output_file(data_dir, data_freq, file, channel_format, HK_headers_dict
    met_add = '\nReprocessed on: ' + dt.strftime(dt.now(), '%Y/%m/%d %H:%M:%S')\
              + '\nTime reference: (seconds since 1904-01-01 00:00:00)' 
              
-   cts_met = '\n\n' + open(
-                       os.getcwd() + '\\lib\\lif_metadata.txt').read() + met_add
+   #cts_met = '\n\n' + open(
+   #                    os.getcwd() + '\\lib\\lif_metadata.txt').read() + met_add
    
+    #29/01/2025 change to the script                   
+   file_path = os.path.join(os.getcwd(), 'lib', 'lif_metadata.txt')
+   with open(file_path, 'r') as f:
+        cts_met = '\n\n' + f.read() + met_add
    processed_file.write(str(cts_met + '\n' + '\n'))
    
    if data_freq == 10:
@@ -768,56 +756,13 @@ def align_bin_HK(bin_data_dict, log_start_datetime_seconds, HK_data):
 def gen_output_data(file, channel_format, data_dir, bin_data_dict, HK_data 
                     , HK_headers_dict, data_freq, bin_time_arr, HK_start_ind
                     , HK_end_ind, nan_data, processed_file, histograms):
-    """
-    Processes, averages, aligns, and writes binary and Housekeeping (HK) data 
-    to the output file, supporting both 10Hz averaged data and 100Hz 
-    instantaneous data.
-
-    The function iterates through the 100Hz binary data. It handles periods of 
-    constant laser operation (Mode 1) by writing NaN placeholders and applies 
-    different processing logic based on the desired output frequency.
-
-    Parameters
-    ----------
-    channel_format : dict
-        Mapping of channel names to indices, used for identifying count 
-        channels.
-    bin_data_dict : dict
-        Dictionary of processed (de-interleaved, corrected) binary data arrays 
-        (100 Hz).
-    HK_data : dict
-        Housekeeping data dictionary.
-    HK_headers_dict : dict
-        Validated list of HK headers for writing.
-    data_freq : int
-        The intended output frequency (10 for averaged, 100 for instantaneous).
-    bin_time_arr : numpy.ndarray
-        Array of absolute timestamps for the binary data.
-    HK_start_ind : int
-        Starting index for relevant HK data.
-    HK_end_ind : int
-        Ending index for relevant HK data.
-    nan_data : str
-        Comma-separated string of placeholder values (-9999) for invalid data.
-    processed_file : file object
-        The open file handle for the output text file.
-    shift_correction : int
-        The index shift to apply to the 'seed_LD_mode' channel.
-    cts_ind_arr : list of int
-        Indices for linearized signal count channels.
-    cts_ind_arr_norm : list of int
-        Indices for normalized signal count channels.
-
-    Returns
-    -------
-    None
-        Data is written directly to the processed_file (side effect).
-    """
+    
     if data_freq == 10:
         seed_LD_mode = bin_data_dict['seed_LD_mode']
         if 5 not in seed_LD_mode and 6 not in seed_LD_mode:
             print('No periods of laser dither detected, no 10Hz data processed')
             return
+    """
     processing_variables = pd.read_csv(os.path.join(
         data_dir, 'processing_variables.txt')
         )
@@ -829,75 +774,32 @@ def gen_output_data(file, channel_format, data_dir, bin_data_dict, HK_data
     for col in processing_variables.columns:
         if '_shift' in col:
             # Get the actual channel name (e.g., 'sig_counts' from 'sig_counts_shift')
-            channel_name = col.replace('_shift', '')
-            
+            #..get all of the channels to shift (so all of the channels we have pre_made above and then apply them to this)
+            for suffix in ['', '_lin',  '_norm']: 
+                channel_name = col.replace('_shift' , suffix)
             # Check if this channel exists in our data
-            if channel_name in bin_data_dict:
-                shift_val = int(float(processing_variables[col][this_file_index]))
-                
-                if shift_val == 0:
-                    continue
-                    
-                data = bin_data_dict[channel_name]
-                orig_len = len(data)
-                
-                if shift_val > 0:
-                    # Move Right: Pad start, trim end
-                    shifted = np.pad(data, (shift_val, 0), mode='constant', constant_values=np.nan)
-                    bin_data_dict[channel_name] = shifted[:orig_len]
-                else:
-                    # Move Left: Pad end, trim start
-                    abs_s = abs(shift_val)
-                    shifted = np.pad(data, (0, abs_s), mode='constant', constant_values=np.nan)
-                    bin_data_dict[channel_name] = shifted[abs_s:]
-                
-                print(f"Applied shift of {shift_val} to {channel_name}")
-    """
-    # Shift relevant columns as needed
-    for channel in channel_format:
-        if channel not in ['sig_counts', 'ref_counts', 'seed_LD_current']:
-            continue
-        
-        shift_column = f'{channel}_shift'
-        if shift_column in processing_variables.columns:
-            #12/01/2026 changes!
-            shift_value = int(float(processing_variables[shift_column][this_file_index]))
-        else:
-            shift_value = 0
             
-        data_array = bin_data_dict[channel]
-        original_length = len(data_array)
-        
-        if shift_value == 0:
-            continue
-        elif shift_value > 0:
-            #12/01/2026: making them astype(float); test!
-        # Positive shift (data moves right): Pad the beginning (left) with NaNs.
-            pad_width = shift_value
-            shifted_array = np.pad(
-                data_array.astype(float), 
-                [pad_width, 0], 
-                mode='constant', 
-                constant_values=np.nan
-            )
-            # Slice off the end to maintain original length
-            bin_data_dict[channel] = shifted_array[:original_length]
-       
-        elif shift_value < 0:
-        # Negative shift (data moves left): Pad the end (right) with NaNs.
-            abs_shift = int(abs(shift_value))
-            pad_width = (0, abs_shift)
-            shifted_array = np.pad(
-                data_array.astype(float), 
-                pad_width, 
-                mode='constant', 
-                constant_values=np.nan
-            )
-            # Slice off the beginning to maintain original length
-            bin_data_dict[channel] = shifted_array[abs_shift:]   
-            #bin_data_dict[channel] = bin_data_dict[channel].astype(int)
+                if channel_name in bin_data_dict:
+                    shift_val = int(float(processing_variables[col][this_file_index]))
+                    
+                    if shift_val == 0:
+                        continue
+                        
+                    data = bin_data_dict[channel_name]
+                    orig_len = len(data)
+                    
+                    if shift_val > 0:
+                        # Move Right: Pad start, trim end
+                        shifted = np.pad(data, (shift_val, 0), mode='constant', constant_values=np.nan)
+                        bin_data_dict[channel_name] = shifted[:orig_len]
+                    else:
+                        # Move Left: Pad end, trim start
+                        abs_s = abs(shift_val)
+                        shifted = np.pad(data, (0, abs_s), mode='constant', constant_values=np.nan)
+                        bin_data_dict[channel_name] = shifted[abs_s:]
+                    
+                    print(f"Applied shift of {shift_val} to {channel_name}")
     """
-    
     cts_ind_arr = [i for i in range(0, len(list(bin_data_dict)))
                        if 'sig_' in list(bin_data_dict)[i]
                            and '_lin' in list(bin_data_dict)[i]]
@@ -1180,7 +1082,7 @@ def reprocess_binary_data(date, file, log_start_datetime, HK_headers_dict
         data_dir, date, file
         )
     bin_data_dict = deinterleave_bin_data(
-        bin_data, channel_format, channel_count
+        bin_data, channel_format, channel_count, file, data_dir
         )
     processed_file, nan_data = gen_output_file(
         data_dir, data_freq, file, channel_format, HK_headers_dict
@@ -1406,7 +1308,7 @@ def misaligned_counts(data_dir, day_folders, channel_format,
                 start_indices = (
                     cal_transitions[cal_transitions == 1.0].index
                 )
-                
+#sig on off and ref on and off as their own text files and lsr pwr            
                 
         if len(start_indices) == 0:
             continue
@@ -1443,7 +1345,7 @@ def misaligned_counts(data_dir, day_folders, channel_format,
             sds_results = []
             
             # For each lag (0, 1, -1)
-            for lag in [0, -1, 1, -2, 2]:
+            for lag in [0, -1, 1]:
                 
                 sum_of_sds = 0
                 test_section_lag = test_section.copy()
@@ -1721,7 +1623,7 @@ def read_processed_files_100Hz(data_dir, day_folders):
     # converting date_time
     #for using the 100HZ only (diagnostics)
     cts_data.rename(columns={'time_ms': 'Date_time'}, inplace=True)
-    cts_data['Date_time'] = (pd.to_datetime(cts_data['Date_time'], unit='s') - pd.to_timedelta(2082844800, unit='s'))
+    cts_data['Date_time'] = (pd.to_datetime(cts_data['Date_time'], unit='s'))# - pd.to_timedelta(2082844800, unit='s'))
     cts_data['Date_time'] = pd.to_datetime(cts_data['Date_time'])
     cts_data = cts_data.sort_values(by='Date_time')
     
@@ -1851,47 +1753,64 @@ def cell_flow_adjusted_MACE_HEAD(cts_data):
     
     return cts_data_o
 
-def ref_normalise(data, channels):
-    """
-    Applies the reference cell normalisation step.
-    
-    Parameters
-    ----------
-    data : pandas.DataFrame
-        The input DataFrame containing the processed data, which must include
-        the normalized difference counts for the reference channel ('ref_diff_cts_norm')
-        and the normalized difference counts for all specified signal channels
-        (e.g., 'H2O_diff_cts_norm').
-    channels : list of str
-        A list of channel names (e.g., ['H2O', 'O2']) to apply the reference
-        normalization to.
-    
-    Returns
-    -------
-    pandas.DataFrame
-        A copy of the input DataFrame with new columns appended for the
-        reference-normalized difference counts. The new column names follow the
-        format: '{channel}_diff_cts_ref_norm'.
-    """
-    
-    print('\nnormalising counts to the reference cell')
+def ref_normalise_test(data, channels):
+    print('\nNormalising counts to the reference cell')
     
     data = data.copy()
-    
+    data['Date_time'] = pd.to_datetime(data['Date_time'])
+     
     for channel in channels:
-        
         data[f'{channel}_diff_cts_ref_norm'] = data[f'{channel}_diff_cts_norm'] / data['ref_diff_cts_norm']
 
-
-    data['Date_time'] = pd.to_datetime(data['Date_time'])
-    fig, ref_check = plt.subplots(1,1)
-    ref_check.plot(data['Date_time'], data['ref_diff_cts'])
-    plt.ylabel("ref_diff_cts_norm", fontsize = 24)
-    plt.xlabel("Datetime", fontsize = 24)
-    plt.xticks(fontsize = 24)
-    plt.yticks(fontsize = 24)
+    fig, ref_check = plt.subplots(figsize=(10, 6))
+    ref_check.plot(data['Date_time'], data['ref_diff_cts_norm'])
+    plt.ylabel("ref_diff_cts_norm", fontsize=24)
+    plt.xlabel("Datetime", fontsize=24)
+    plt.xticks(fontsize=18)
+    plt.yticks(fontsize=18)
     
     return data
+"""
+        removal_ref = removal_ref 
+        if removal_ref is True:
+            start_date = '2025-06-05 08:55:00'
+            end_date = '2025-06-05 12:00:00'
+            start_date_x = '2025-06-06 08:59:00'
+            end_date_x = '2025-06-06 09:02:00'
+            mask = (
+                ((data['zero_midpoint'] >= start_date) & (data['zero_midpoint'] <= end_date))|
+                    ((data['zero_midpoint'] >= start_date_x) & (data['zero_midpoint'] <= end_date_x))
+                    )
+            data.loc[mask, "ref_diff_cts_norm"] =np.nan
+            
+            
+            #convert them to a value to be abel to do the interpolation steps 
+            mask = data['Date_time'].values
+            
+            x_sorted = mask.values
+            y_sorted = mask.values
+            
+            x_numeric = x_sorted.astype(np.int64)
+            from scipy.interpolate import make_interp_spline
+            # 1. Create Spline mapping
+            quadratic_spline = make_interp_spline(x_numeric, y_sorted, k=1)
+
+            # 2. Generate numeric grid
+            x_grid_numeric = np.linspace(x_numeric.min(), x_numeric.max(), 12000)
+            y_quadratic = quadratic_spline(x_grid_numeric)
+            
+            # 3. Convert grid back to datetime for plotting and merging
+            x_grid_datetime = pd.to_datetime(x_grid_numeric)
+            
+            data = pd.DataFrame({
+                'Date_time': x_grid_datetime,
+                'ref_diff_cts_norm': y_quadratic
+            }).sort_values('Date_time')
+            
+            data = data.sort_values(by="Date_time")
+            
+            data[f'{channel}_diff_cts_ref_norm'] = data[f'{channel}_diff_cts_norm'] / data['ref_diff_cts_norm']
+""" 
 
 #under construction!
 def remove_points(data, date_ranges):
@@ -2035,7 +1954,7 @@ def set_flags(data, pre_TS, post_TS, pre_PF, post_PF, ref_cts_diff_limit):
     
     return data
 
-def zero_correct_average(data, channels, plot=False):
+def zero_correct_average(data, channels, removal_zero, plot=False):
     """
     Applies a single, constant average zero-offset correction to the
     reference-normalized count data for specified channels.
@@ -2122,14 +2041,27 @@ def zero_correct_average(data, channels, plot=False):
         
         zero_stats = zero_stats[spike_mask]
         
+        zero_stats['zero_midpoint'] =pd.to_datetime(zero_stats['zero_midpoint'])
+        removal_zero = removal_zero
+        
+        #09/02/2026: to remove the spikes from the 02-06/06/2025 DY195 data, will need to remove this 
+        if removal_zero is True:
+            start_date = pd.to_datetime('2025-06-05 08:55:00')
+            end_date   = pd.to_datetime('2025-06-05 12:00:00')
+            start_date_x = pd.to_datetime('2025-06-06 08:59:00')
+            end_date_x   = pd.to_datetime('2025-06-06 09:02:00')
+            mask = (
+                ((zero_stats['zero_midpoint'] >= start_date) & (zero_stats['zero_midpoint'] <= end_date))|
+                    ((zero_stats['zero_midpoint'] >= start_date_x) & (zero_stats['zero_midpoint'] <= end_date_x))
+                    )
+            zero_stats=zero_stats[~mask]
+        
         mean_zero_spikes_removed = zero_stats[f'{column_name}_mean'].mean()
-        print(f'\n{channel}:\nmean zero before spike removal = {mean_zero}'
-              f'\nmean zero after spike removal = {mean_zero_spikes_removed}')
         
-        stats_csv_name = "mean_zero_spikes_removed.csv"
-        mean_zero_spikes_removed.to_csv(stats_csv_name, index=False)
+        #stats_csv_name = "mean_zero_spikes_removed.csv"
+        #mean_zero_spikes_removed.to_csv(stats_csv_name, index=False)
         
-        print(f"Saved {len(zero_stats)} individual zero points for {channel} to {stats_csv_name}")
+        #print(f"Saved {len(zero_stats)} individual zero points for {channel} to {stats_csv_name}")
    
         mean_correction = mean_zero_spikes_removed # The overall mean after spike removal
         correction_values = np.full(len(data), mean_correction)
@@ -2162,6 +2094,223 @@ def zero_correct_average(data, channels, plot=False):
             ax[1].set_xlabel(column_name)
             
             plt.show()
+    return data
+
+def zero_correct_imls(data, channels, h_seconds=2400, plot=True):
+    """
+    IMLS zero-correction using the 3-sigma spike filter for robust drift tracking.
+    """
+    # Pre-calculate time in seconds for the math
+    t_full = data['Date_time'].values.astype(np.int64) // 10**9
+    
+    # 1. Group the zeroing tasks (Task 4)
+    is_zero = (data['Task'] == 4) & (data['Peak_find_flag'] == 0)
+    # This creates a unique ID for each continuous block of zero-task data
+    zero_group_ids = (is_zero != is_zero.shift()).cumsum()
+    zero_df = data[is_zero].copy()
+    zero_df['zero_number'] = zero_group_ids[is_zero]
+
+    for channel in channels:
+        column_name = f'{channel}_diff_cts_ref_norm'
+        if column_name not in data.columns:
+            continue
+            
+        # 2. Calculate the mean for each individual zero period
+        grouped_zeros = zero_df.groupby('zero_number').agg({
+            column_name: 'mean',
+            'Date_time': 'mean'
+        }).dropna()
+        
+        # 3. APPLY YOUR SPIKE MASK (The 3-Sigma Filter)
+        mean_all_zeros = grouped_zeros[column_name].mean()
+        std_all_zeros = grouped_zeros[column_name].std()
+        
+        lower_limit = mean_all_zeros - 3 * std_all_zeros
+        upper_limit = mean_all_zeros + 3 * std_all_zeros
+        
+        # This keeps only the 'good' zero periods
+        spike_mask = (grouped_zeros[column_name] >= lower_limit) & (grouped_zeros[column_name] <= upper_limit)
+        valid_zeros = grouped_zeros[spike_mask]
+        
+        print(f"\n{channel}: Filtered out {len(grouped_zeros) - len(valid_zeros)} bad zero periods.")
+
+        # 4. IMLS CALCULATION (Weighted Smoothing)
+        t_z = valid_zeros['Date_time'].values.astype(np.int64) // 10**9
+        v_z = valid_zeros[column_name].values
+        
+        numerator = np.zeros(len(t_full))
+        denominator = np.zeros(len(t_full))
+        h_sq = h_seconds**2
+        
+        # Loop through valid zero points to build the trend
+        for i in range(len(t_z)):
+            # Gaussian weight based on time distance
+            weights = np.exp(-((t_full - t_z[i])**2) / h_sq)
+            numerator += weights * v_z[i]
+            denominator += weights
+            
+        # Avoid division by zero in case of huge gaps
+        denominator[denominator == 0] = np.nan
+        drift_curve = numerator / denominator
+        
+        # 5. Add requested columns to the original data
+        data[f'{channel}_zero_offset'] = drift_curve
+        data[f'{channel}_diff_cts_ref_norm_zero_corr'] = data[column_name] - drift_curve
+
+        if plot:
+            # Downsample to every 50th point for the plot to keep it fast
+            # plt.figure(figsize=(12, 6))
+            # plt.plot(data['Date_time'][::50], data[column_name][::50], color='black', alpha=0.5, label='Raw 10Hz (Sampled)')
+            # plt.plot(data['Date_time'], data[f'{channel}_zero_offset'], color='blue', linewidth=2, label='IMLS Drift Trend')
+            # plt.scatter(valid_zeros['Date_time'], valid_zeros[column_name], color='red', s=20, label='Valid Zero Anchors', zorder=5)
+            # # Optional: Show the rejected zeros as X's
+            # rejected = grouped_zeros[~spike_mask]
+            # if not rejected.empty:
+            #     plt.scatter(rejected['Date_time'], rejected[column_name], color='black', marker='x', label='Rejected Spikes')
+            
+            # plt.title(f"{channel} Correction (h={h_seconds}s)")
+            # plt.legend()
+            # plt.savefig("./zero_IMLS_data.png")
+            # plt.show()
+        
+       
+
+            # Create the figure and the first axis (ax1)
+            fig, ax1 = plt.subplots(figsize=(12, 6))
+            
+            # --- Primary Y-Axis (Left): Raw Data & Points ---
+            ax1.plot(data['Date_time'][::50], data[column_name][::50], color='black', alpha=0.3, label='Raw 10Hz (Sampled)')
+            ax1.scatter(valid_zeros['Date_time'], valid_zeros[column_name], color='red', s=20, label='Valid Zero Anchors', zorder=5)
+            
+            # Plot rejected spikes on ax1 as well
+            rejected = grouped_zeros[~spike_mask]
+            if not rejected.empty:
+                ax1.scatter(rejected['Date_time'], rejected[column_name], color='gray', marker='x', label='Rejected Spikes')
+            
+            ax1.set_ylabel('Raw Signal Amplitude', color='black')
+            ax1.tick_params(axis='y', labelcolor='black')
+            
+            # --- Secondary Y-Axis (Right): The Correction Trend ---
+            ax2 = ax1.twinx()  
+            ax2.plot(data['Date_time'], data[f'{channel}_zero_offset'], color='blue', linewidth=2, label='IMLS Drift Trend')
+            
+            ax2.set_ylabel('Correction Offset (Drift)', color='blue')
+            ax2.tick_params(axis='y', labelcolor='blue')
+            
+            # --- Final Layout & Legend ---
+            plt.title(f"{channel} Correction (h={h_seconds}s) with Dual Y-Axes")
+            
+            # Combine legends from both axes
+            lines1, labels1 = ax1.get_legend_handles_labels()
+            lines2, labels2 = ax2.get_legend_handles_labels()
+            ax1.legend(lines1 + lines2, labels1 + labels2, loc='upper left')
+            
+            plt.tight_layout()
+            plt.savefig("./zero_IMLS_dual_axis.png")
+            plt.show()
+
+    return data
+
+def zero_correct_imls_final(data, channels, h_seconds=2400, plot=True):
+    """
+    IMLS zero-correction with adaptive bandwidth for large gaps.
+    - Uses 3-sigma filter for spikes.
+    - Uses np.select to stretch 'h' across gaps (1.5x, 2x, 3x multipliers).
+    - Dual-axis plotting for visibility.
+    """
+    # Convert time to seconds for math
+    t_full = data['Date_time'].values.astype(np.int64) // 10**9
+    
+    is_zero = (data['Task'] == 4) & (data['Peak_find_flag'] == 0)
+    zero_group_ids = (is_zero != is_zero.shift()).cumsum()
+    zero_df = data[is_zero].copy()
+    zero_df['zero_number'] = zero_group_ids[is_zero]
+
+    for channel in channels:
+        column_name = f'{channel}_diff_cts_ref_norm'
+        if column_name not in data.columns:
+            continue
+            
+        # 1. Group Zeros & Filter Spikes
+        grouped_zeros = zero_df.groupby('zero_number').agg({
+            column_name: 'mean',
+            'Date_time': 'mean'
+        }).dropna()
+        
+        m, s = grouped_zeros[column_name].mean(), grouped_zeros[column_name].std()
+        spike_mask = (grouped_zeros[column_name] >= m - 3*s) & (grouped_zeros[column_name] <= m + 3*s)
+        
+        valid_zeros = grouped_zeros[spike_mask]
+        rejected = grouped_zeros[~spike_mask]
+        
+        t_z = valid_zeros['Date_time'].values.astype(np.int64) // 10**9
+        v_z = valid_zeros[column_name].values
+
+        # 2. Distance Calculation for Adaptive Bandwidth
+        idx = np.searchsorted(t_z, t_full)
+        idx = np.clip(idx, 1, len(t_z) - 1)
+        dist_to_nearest = np.minimum(np.abs(t_full - t_z[idx]), np.abs(t_full - t_z[idx-1]))
+        
+        # 3. np.select Logic: Choose h based on gap size
+        conditions = [
+            (dist_to_nearest > 10800), # > 3 hours
+            (dist_to_nearest > 7200),  # > 2 hours
+            (dist_to_nearest > 3600),  # > 1 hour
+            (dist_to_nearest > h_seconds)
+        ]
+        choices = [
+            dist_to_nearest * 3.0,
+            dist_to_nearest * 2.0,
+            dist_to_nearest * 1.5,
+            h_seconds
+        ]
+        h_adaptive = np.select(conditions, choices, default=h_seconds)
+        h_sq_adaptive = h_adaptive**2
+
+        # 4. IMLS Trend Calculation
+        numerator = np.zeros(len(t_full))
+        denominator = np.zeros(len(t_full))
+        
+        for i in range(len(t_z)):
+            diff_sq = (t_full - t_z[i])**2
+            weights = np.exp(-diff_sq / h_sq_adaptive)
+            numerator += weights * v_z[i]
+            denominator += weights
+            
+        denominator[denominator == 0] = np.nan
+        drift_curve = numerator / denominator
+        
+        data[f'{channel}_zero_offset'] = drift_curve
+        data[f'{channel}_diff_cts_ref_norm_zero_corr'] = data[column_name] - drift_curve
+
+        # 5. Plotting
+        if plot:
+            fig, ax1 = plt.subplots(figsize=(12, 6))
+            
+            # Left Y-Axis: Raw data and Anchors
+            ax1.plot(data['Date_time'][::50], data[column_name][::50], color='black', alpha=0.2, label='Raw (Sampled)')
+            ax1.scatter(valid_zeros['Date_time'], valid_zeros[column_name], color='red', s=30, label='Valid Zeros', zorder=5)
+            if not rejected.empty:
+                ax1.scatter(rejected['Date_time'], rejected[column_name], color='gray', marker='x', label='Spikes (Rejected)')
+            
+            ax1.set_ylabel('Raw Counts / Amplitude', color='black')
+            
+            # Right Y-Axis: The Correction Curve
+            ax2 = ax1.twinx()
+            ax2.plot(data['Date_time'], drift_curve, color='blue', linewidth=2, label='Adaptive Drift Trend')
+            ax2.set_ylabel('Correction Offset (Drift)', color='blue')
+            ax2.tick_params(axis='y', labelcolor='blue')
+
+            plt.title(f"{channel} Adaptive IMLS Correction")
+            
+            # Combine legends
+            h1, l1 = ax1.get_legend_handles_labels()
+            h2, l2 = ax2.get_legend_handles_labels()
+            ax1.legend(h1 + h2, l1 + l2, loc='upper left')
+            
+            plt.tight_layout()
+            plt.show()
+
     return data
 
 def intercepts_average(data_dir, data, channels, R2_limit, plot=False):
@@ -2473,7 +2622,7 @@ def zero_correct_interpolated_quad(data, channels, plot=False):
         x_numeric = x_sorted.astype(np.int64)
         from scipy.interpolate import make_interp_spline
         # 1. Create Spline mapping
-        quadratic_spline = make_interp_spline(x_numeric, y_sorted, k=2)
+        quadratic_spline = make_interp_spline(x_numeric, y_sorted, k=1)
 
         # 2. Generate numeric grid
         x_grid_numeric = np.linspace(x_numeric.min(), x_numeric.max(), 12000)
@@ -2709,7 +2858,7 @@ def cal_single_point(data, channels, plot=False):
     return data   
 
 def analyse_cals(data, data_dir, channels, molecule, cal_cylinder_conc
-                 , plot, save_csv, cal_task, threshold):
+                 , plot, save_csv, cal_task, threshold, cal_low_point_check):
     
     print('\nsearching dataset for calibration periods')
 
@@ -2852,7 +3001,33 @@ def analyse_cals(data, data_dir, channels, molecule, cal_cylinder_conc
 
                 stable_cal_point_mask = cal_df['stable_cal_point'] == True
                 cal_df_filtered = cal_df[stable_cal_point_mask].copy()
+                # Initialize variables so the 'new_data_to_append' dict doesn't fail
+                lowest_mr_val = None
+                lowest_mean_signal = None
 
+                if cal_low_point_check:
+                    # Group filtered data by the individual steps
+                    point_stats = cal_df_filtered.groupby('cal_point').agg({
+                        f'{molecule}_mr': 'mean',
+                        f'{channel}_diff_cts_ref_norm_zero_corr': 'mean'
+                    })
+
+                    if not point_stats.empty:
+                        # Find the row with the minimum Mixing Ratio
+                        lowest_row = point_stats.loc[point_stats[f'{molecule}_mr'].idxmin()]
+                        
+                        lowest_mr_val = lowest_row[f'{molecule}_mr']
+                        lowest_mean_signal = lowest_row[f'{channel}_diff_cts_ref_norm_zero_corr']
+                        
+                        # Only print if the flag is active
+                        print(f" | LOW POINT CHECK - MR: {lowest_mr_val:.2f}, Signal: {lowest_mean_signal:.4f}")
+                
+
+
+
+
+
+#for the regression calculations
                 regression_cols = [f'{molecule}_mr',
                                    f'{channel}_diff_cts_ref_norm_zero_corr']
                 cal_df_cleaned = cal_df_filtered.replace(
@@ -2958,7 +3133,11 @@ def analyse_cals(data, data_dir, channels, molecule, cal_cylinder_conc
                     'R2': r_value**2,
                     'slope_std_err': std_err_of_slope
                     }
-
+                #09/02/2026 to check the lowest cal values!
+                if cal_low_point_check:
+                    new_data_to_append['lowest_pt_mr'] = lowest_mr_val
+                    new_data_to_append['lowest_pt_mean_signal'] = lowest_mean_signal
+                    
                 if save_csv:
                     writer.writerow(new_data_to_append)
 
@@ -3319,12 +3498,13 @@ def analyse_cals_MH(data, data_dir, channels, molecule, cal_cylinder_conc
 
     # --- PLOTTING SETUP ---
     if plot:
-        ROWS = 4
-        COLS = 8
+        ROWS = 2
+        COLS = 4
         MAX_PLOTS = ROWS * COLS
         plot_counter = 0
         fig = None
         ax = None
+        fig_index = 1
     # ----------------------
 
     fieldnames = ['cal_number', 'cal_start_date_time', 'avg_lsr_pwr', 'slope',
@@ -3358,6 +3538,10 @@ def analyse_cals_MH(data, data_dir, channels, molecule, cal_cylinder_conc
                     if plot_counter % MAX_PLOTS == 0:
                         if fig is not None:
                             plt.tight_layout()
+                            save_name = f"cals_{channel}_{fig_index}.png"
+                            plt.savefig(save_name)
+                            print(f" Saved: {save_name}")
+                            fig_index += 1
                             plt.show()
 
                         fig, ax = plt.subplots(ROWS, COLS,
@@ -3525,7 +3709,7 @@ def analyse_cals_MH(data, data_dir, channels, molecule, cal_cylinder_conc
                     'R2': r_value**2,
                     'slope_std_err': std_err_of_slope
                     }
-
+                
                 if save_csv:
                     writer.writerow(new_data_to_append)
 
@@ -4181,6 +4365,372 @@ def analyse_cals_TAS_twnety_sixth(data, data_dir, channels, molecule, cal_cylind
             print(f"Channel: {channel} - No calibration file found.")
     print("="*30 + "\n")   
     return
+def analyse_cals_in_ambient(data, data_dir, channels, molecule, cal_cylinder_conc
+                 , plot, save_csv, cal_task, threshold):
+    
+    print('\nsearching dataset for calibration periods')
+
+    cts_data = data.copy()
+    
+    #back to the actual code!
+    flows = [column for column in cts_data.columns
+             if 'Flow' in column]
+    cts_data['total_flow'] = cts_data[flows].sum(axis=1)
+    # Calculate the MR associated with the cal gas and flow
+    cts_data[f'{molecule}_mr'] = (
+        cts_data[f'Cal_{molecule}_MFC_Read'] / (cts_data['total_flow']
+        ) * cal_cylinder_conc)
+
+    # Isolate the columns of data required for the cal analysis
+    diff_cts_columns = [f'{channel}_diff_cts_ref_norm'
+                        for channel in channels]
+    additional_columns = ['Date_time', 'Task', 'lsr_pwr_mW',
+                          f'{molecule}_mr', f'Cal_{molecule}_MFC_Read',
+                          'ZA_SB_MFC_Read', f'Cal_{molecule}_MFC_set']
+    all_columns = diff_cts_columns + additional_columns
+    # Copy the dataframe containing only the columns of interest
+    cts_data = cts_data[all_columns].copy()
+
+    # Find start of calibration periods (Task 2 starts)
+    cts_data['start_of_cal'] = np.where(
+        (cts_data['Task'] == cal_task) & (cts_data['Task'].shift(1) != cal_task)
+        , 1
+        , 0
+        )
+    # Mask for calibration periods with cal SB off
+    cal_task_mask = ((cts_data['Task'] == cal_task))# &
+                     #(cts_data['ZA_SB_MFC_Read'] <= 0.47))
+    cts_data = cts_data[cal_task_mask]
+    # Cumulatively sum the start_of_cal flags to number the calibrations
+    cts_data['cal_number'] = cts_data['start_of_cal'].cumsum()
+
+    num_cals = cts_data['cal_number'].max()
+    print(f'\n{num_cals} calibrations found')
+
+    # --- PLOTTING SETUP ---
+    if plot:
+        ROWS = 2
+        COLS = 4
+        MAX_PLOTS = ROWS * COLS
+        plot_counter = 0
+        fig = None
+        ax = None
+        fig_index = 1
+    # ----------------------
+
+    fieldnames = ['cal_number', 'cal_start_date_time', 'avg_lsr_pwr', 'slope',
+                  'intercept', 'R2', 'slope_std_err']
+
+    for channel in channels:
+
+        print(f'\nAnalysing cals in {channel}:')
+
+        if save_csv:
+            file_path = os.path.join(data_dir, f'{channel}_cal_data.txt')
+            # Open the file for writing (or append if it exists)
+            txtfile = open(file_path, 'w', newline='')
+            writer = csv.DictWriter(txtfile, fieldnames=fieldnames)
+
+            writer.writeheader()
+            
+        else:
+            # Create dummy objects if not making CSV
+            writer = None
+            txtfile = None
+
+        try:
+            cts_data_cal = cts_data.copy()
+            cals = cts_data_cal.groupby('cal_number')
+
+            for cal_num, cal_df in cals:
+
+                # --- PLOTTING LOGIC START ---
+                if plot:
+                    if plot_counter % MAX_PLOTS == 0:
+                        if fig is not None:
+                            plt.tight_layout()
+                            save_name = f"cals_{channel}_{fig_index}.png"
+                            plt.savefig(save_name)
+                            print(f" Saved: {save_name}")
+                            fig_index += 1
+                            plt.show()
+
+                        fig, ax = plt.subplots(ROWS, COLS,
+                                               figsize=(25, 12))
+                        fig.suptitle(f'Trimmed Calibration Analysis: '
+                                     f'Time-Series & Regression ({channel})',
+                                     fontsize=16)
+                        ax = ax.flatten()
+
+                    # Two plots per cal: Time-series and Regression
+                    current_ax_reg = ax[plot_counter % MAX_PLOTS]
+                    current_ax_time = ax[(plot_counter % MAX_PLOTS) + 1]
+                # --- PLOTTING LOGIC END ---
+
+                cal_df = cal_df.reset_index(drop=True).copy(deep=True)
+
+                if len(cal_df) == 0:
+                    continue
+
+                print(f'\rcal {cal_num}', end='')
+
+                cal_start_time = cal_df['Date_time'][0]
+
+                # Identify individual calibration steps (points)
+                cal_df['cal_point_switch'] = np.where(
+                    cal_df[f'Cal_{molecule}_MFC_set'] !=
+                    cal_df[f'Cal_{molecule}_MFC_set'].shift(1)
+                    , 1
+                    , 0
+                    )
+                cal_df['cal_point'] = cal_df['cal_point_switch'].cumsum()
+                cal_points = cal_df.groupby('cal_point')
+
+                # Reset steady_state column
+                cal_df['stable_cal_point'] = False
+
+                # ==========================================================
+                # --- CORRECTED STEADY-STATE (TRIM) LOGIC ---
+                # This applies a 5% trim to the start and end of EACH cal_point
+                # ==========================================================
+                for cal_point, cal_point_df in cal_points:
+
+                    point_length = len(cal_point_df)
+
+                    # Calculate the number of points to trim (5% of length)
+                    trim_n = int(np.ceil(point_length * 0.05))
+
+                    # Check if there's enough data left (> 10% trimmed)
+                    if point_length > 2 * trim_n:
+
+                        # Get indices of the middle 90% (trimmed data)
+                        stable_cal_point_indices = cal_point_df.iloc[
+                            trim_n : point_length - trim_n].index
+
+                        # Set 'stable_cal_point' to True for these indices
+                        cal_df.loc[stable_cal_point_indices,
+                                   'stable_cal_point'] = True
+                # ==========================================================
+
+                stable_cal_point_mask = cal_df['stable_cal_point'] == True
+                cal_df_filtered = cal_df[stable_cal_point_mask].copy()
+                cal_df_filtered = cal_df_filtered.groupby('cal_point').filter(
+                    #lambda x: is a shorthand way of defining a function. It defines the input. The code after the : is the logic applied.
+                    lambda x: x[f'{channel}_diff_cts_ref_norm'].mean() > 0)
+                if len(cal_df_filtered) == 0:
+                    continue
+                regression_cols = [f'{molecule}_mr',
+                                   f'{channel}_diff_cts_ref_norm']
+                cal_df_cleaned = cal_df_filtered.replace(
+                    [np.inf, -np.inf], np.nan).dropna(
+                        subset=regression_cols)
+
+                # --- Prepare data for regression ---
+                X = cal_df_cleaned[f'{molecule}_mr']
+                Y = cal_df_cleaned[f'{channel}_diff_cts_ref_norm']
+
+                cal_laser_power = cal_df_filtered['lsr_pwr_mW'].mean()
+
+                # Check for sufficient data points before regression
+                if len(X) < 2 or X.nunique() < 2:
+                    print(' filtered data has no points')
+                    slope, intercept, r_value, p_value, \
+                        std_err_of_slope = [np.nan] * 5
+                else:
+                    slope, intercept, r_value, p_value, \
+                        std_err_of_slope = linregress(X, Y)
+
+                if plot:
+                    # ==========================================================
+                    # --- PLOT 1: TIME SERIES ---
+                    # ==========================================================
+
+                    # 1. Plot all data points against time
+                    current_ax_time.plot(cal_df['Date_time'],
+                                         cal_df[f'{channel}_diff_cts_ref_norm'],
+                                         label='All Data', color='gray',
+                                         linewidth=1, alpha=0.5)
+
+                    # 2. Highlight the steady-state regions
+                    current_ax_time.plot(
+                        cal_df_filtered['Date_time'],
+                        cal_df_filtered[f'{channel}_diff_cts_ref_norm'],
+                        label='Trimmed (90%)', color='firebrick',
+                        linewidth=1)
+
+                    # Formatting for Time Plot
+                    current_ax_time.set_title(
+                        f'Cal {cal_num} - Time Series (90% Trim)',
+                        fontsize=8)
+                    current_ax_time.tick_params(axis='both', which='major',
+                                                labelsize=6)
+                    current_ax_time.tick_params(axis='x', rotation=45)
+                    current_ax_time.set_ylabel('Signal (norm. cts)',
+                                               fontsize=7)
+                    current_ax_time.legend(loc='upper right', fontsize=6)
+
+                    # ==========================================================
+                    # --- PLOT 2: REGRESSION ---
+                    # ==========================================================
+
+                    # 1. Plot all data points for this cal (as background)
+                    current_ax_reg.scatter(
+                        cal_df[f'{molecule}_mr'],
+                        cal_df[f'{channel}_diff_cts_ref_norm'],
+                        label='All Data', s=5, alpha=0.3, color='gray')
+
+                    # 2. Plot filtered (trimmed) points
+                    current_ax_reg.scatter(X, Y,
+                                           label='Trimmed Data', s=10,
+                                           color='darkslateblue')
+
+                    # 3. Plot the regression line if successful
+                    if not np.isnan(slope):
+                        x_fit = np.linspace(X.min(), X.max(), 100)
+                        y_fit = slope * x_fit + intercept
+                        current_ax_reg.plot(
+                            x_fit, y_fit,
+                            label=f'Fit (R2: {r_value**2:.2f})',
+                            color='red', linestyle='--')
+                        current_ax_reg.text(
+                            0.05, 0.95, f'Slope: {slope:.2e}',
+                            transform=current_ax_reg.transAxes,
+                            verticalalignment='top', fontsize=6)
+                    else:
+                        current_ax_reg.text(
+                            0.5, 0.5, 'Regression analysis failed',
+                            transform=current_ax_reg.transAxes,
+                            verticalalignment='center',
+                            horizontalalignment='center', color='red')
+
+                    # Formatting for Regression Plot
+                    current_ax_reg.set_title(
+                        f'Cal {cal_num} - Regression', fontsize=8)
+                    current_ax_reg.tick_params(axis='both', which='major',
+                                                labelsize=6)
+                    current_ax_reg.set_xlabel('Mixing Ratio (MR)',
+                                              fontsize=7)
+                    current_ax_reg.legend(loc='lower right', fontsize=6)
+
+                    plot_counter += 2
+
+
+                new_data_to_append = {
+                    'cal_number': cal_num,
+                    'cal_start_date_time': cal_start_time,
+                    'avg_lsr_pwr': cal_laser_power,
+                    'slope': slope,
+                    'intercept': intercept,
+                    'R2': r_value**2,
+                    'slope_std_err': std_err_of_slope
+                    }
+
+                if save_csv:
+                    writer.writerow(new_data_to_append)
+
+            # After the channel loop, close the file if it was opened
+            if save_csv:
+                txtfile.close()
+
+        except Exception as e:
+            print(f"An error occurred for channel {channel}: {e}")
+            if save_csv and txtfile:
+                txtfile.close()
+            continue
+
+        # After the loop finishes, show the last partially filled figure
+        if plot and fig is not None:
+            for i in range(plot_counter % MAX_PLOTS, MAX_PLOTS):
+                ax[i].axis('off')
+            plt.tight_layout()
+            plt.show()
+            plot_counter = 0
+            fig = None
+            ax = None
+#26/01/2026: edited the following to have the histogram at the bottom of the cal factors            
+    if plot:
+
+        # Create subplots: one row per channel
+        fig, ax = plt.subplots(2, 1, 
+                               figsize=(12, 10))
+
+        # Ensure ax is always iterable even for a single channel
+        # if len(channels) == 1:
+        #     ax = [ax] 
+
+        for i, channel in enumerate(channels):
+
+            file_path = os.path.join(data_dir, f'{channel}_cal_data.txt')
+            cal_data_df = pd.read_csv(file_path)
+
+            # Filter out poor regressions (R2 < 0.75) and sort by time
+            cal_df_filtered = cal_data_df[
+                cal_data_df['R2'] >= 0.8
+            ].sort_values(by='cal_start_date_time')
+
+            # Convert time column to datetime objects
+            time_data = pd.to_datetime(
+                cal_df_filtered['cal_start_date_time'])
+            
+            # --- Plotting ---
+            
+            ax[0].errorbar(
+                time_data,                           # X-axis: Time
+                cal_df_filtered['slope'],            # Y-axis: Calibration Factor
+                yerr=cal_df_filtered['slope_std_err'], # Error bars (y-uncertainty)
+                fmt='o',                             # Format: 'o' for circles (scatter)
+                capsize=3,                           # Size of the error bar caps
+                color='darkslateblue',
+                label='calculated cal factors'
+            )
+            ax[1].hist(cal_df_filtered['slope'], bins=50, alpha=0.5, label=f'{channel} dist')
+                               
+            # --- Formatting ---
+            ax[0].set_xlabel('cal start time')
+            ax[0].set_ylabel('calibration factor')
+            ax[0].set_title(f'{channel}')
+            ax[0].legend()
+            
+            ax[1].set_xlabel('Slope Value')
+            ax[1].set_ylabel('Frequency')
+            #ax[1].set_title('Slope Distribution')
+            ax[1].legend()
+        
+            plt.tight_layout()
+            plt.show()
+            
+    
+    # --- Summary Printout ---
+    print("\n" + "="*30)
+    print("CALIBRATION QUALITY SUMMARY")
+    print("="*30)
+    
+    threshold = threshold
+    for channel in channels:
+        file_path = os.path.join(data_dir, f'{channel}_cal_data.txt')
+        if os.path.exists(file_path):
+            summary_df = pd.read_csv(file_path)
+            # Count total vs high quality
+            total_cals = len(summary_df)
+            high_quality_cals = len(summary_df[summary_df['R2'] > threshold])
+            
+            print(f"Channel: {channel}")
+            print(f"  - Total calibrations analyzed: {total_cals}")
+            print(f"  - Cals with R2 > {threshold}: {high_quality_cals} ({(high_quality_cals/total_cals*100):.1f}%)")
+        else:
+            print(f"Channel: {channel} - No calibration file found.")
+    print("="*30 + "\n")   
+    return
+
+
+
+
+
+
+
+
+
+
 
 def analyse_cals_in_ambient(data, data_dir, channels, molecule, cal_cylinder_conc
                  , plot, save_csv, cal_task, threshold):
@@ -5232,7 +5782,6 @@ def apply_cals_interpolated_NO_ZERO(data_dir, data, channels, BLC, R2_limit):
         x_grid_numeric = np.linspace(x_numeric.min(), x_numeric.max(), 10000)
         y_quadratic = quadratic_spline(x_grid_numeric)
         
-        # 3. Convert grid back to datetime for plotting and merging
         x_grid_datetime = pd.to_datetime(x_grid_numeric)
         
         # 5. Build lookup and merge
@@ -5683,7 +6232,7 @@ def join_txt(processed_data_dir, campaign):
     save_path = os.path.join(processed_data_dir, output_name)
     
     # 4. Prepare Metadata
-    met_add = f'\nReprocessed on: {dt.now().strftime("%Y/%m/%d %H:%M:%S")}\nTimezone = UTC'
+    met_add = f'\nReprocessed on: {dt.now().strftime("%Y/%m/%d %H:%M:%S")}'
     
     # Load external metadata - using os.path.join for cross-platform safety
     metadata_path = os.path.join(os.getcwd(), 'lib', 'lif_metadata.txt')
@@ -5701,28 +6250,45 @@ def join_txt(processed_data_dir, campaign):
     print(f"Successfully created: {save_path}")
     return combined_df
 
-def SO2_plot_data(processed_data_dir, filename, campaign, version, plot = True):
+def SO2_plot_data(processed_data_dir, filename, campaign, version, plot=True):
     print("Loading SO2 data...")
     try:
         so2_file = os.path.join(processed_data_dir, f'{filename}.txt')
         
-        # 1. Read the file to find which line 'Date_time' is on
+        # 1. Find the exact line index for 'Date_time'
         with open(so2_file, 'r') as f:
             lines = f.readlines()
-            header_line = 0
+            header_idx = None
             for i, line in enumerate(lines):
-                if 'Date_time' in line:
-                    header_line = i
+                # Using strip() to remove \n and checking if it starts with our header
+                if line.strip().startswith('Date_time'):
+                    header_idx = i
                     break
         
-        # 2. Load the data using the discovered header row
-        SO2_data = pd.read_csv(so2_file, header=header_line)
-        print(f"Columns found: {SO2_data.columns.tolist()}")
-        # Clean column names (removes hidden spaces or \n)
-        SO2_data.columns = SO2_data.columns.str.strip()
+        if header_idx is None:
+            print("Error: Could not find 'Date_time' header line.")
+            return None
 
+        # 2. Load the data
+        # header=header_idx tells pandas that row is the column names
+        # sep=',' ensures the comma is used to split the columns
+        SO2_data = pd.read_csv(
+            so2_file, 
+            skiprows=header_idx, 
+            sep=',',
+            skip_blank_lines=True
+        )
+        # 3. Clean and Validate
+        SO2_data.columns = SO2_data.columns.str.strip()
+        print(f"Columns successfully identified: {SO2_data.columns.tolist()}")
+
+        # Drop rows where data is missing (common in the first few lines of your file)
+        SO2_data = SO2_data.dropna(subset=['Date_time'])
+        
         # Convert to datetime
-        SO2_data['Date_time'] = pd.to_datetime(SO2_data['Date_time']).dt.floor('min')
+        SO2_data['Date_time'] = pd.to_datetime(SO2_data['Date_time'])
+        
+        # ... rest of your plotting code ...
         
         # ... rest of your plotting code ...
     
@@ -5827,7 +6393,7 @@ def DY195_flagged_periods(interuptions_csv_path, SO2_data):
     eve_tests: any tests that I decided to do with the instrument whilst onboard (e.g. inlet, zero)
     """
     # 1. Load the interruptions file using the path provided
-    interuptions = pd.read_csv(interuptions_csv_path)
+    interuptions = pd.read_csv(interuptions_csv_path, sep = ",")
     
     # 2. Clean up flags: fill empty with 0 and ensure they are integers
     flag_cols = ['so2_flag', 'other_flag', 'nox_flag', 'comparison_flag', 'eve_tests'] 
@@ -6180,6 +6746,7 @@ def restart_removed (data):
     cleaned_df["Date_time"] = pd.to_datetime(cleaned_df["Date_time"])
     fig, clean_data = plt.subplots(1,1)
     clean_data.plot(cleaned_df["Date_time"], cleaned_df["amb_SO2_ppt"])
+    clean_data.axhline(y=0, color='r', linestyle='--', linewidth=1.5, alpha=0.5, zorder=1)
     plt.ylabel("SO2 (ppt)", fontsize = 20)
     plt.xlabel("Datetime", fontsize = 20)
     plt.title("SO2 in sector, interuptions removed, DY195", fontsize = 20)
@@ -6714,10 +7281,12 @@ def timezone_conversion_DY195(data):
 #-------------------------------------------------------------------------------#     
 def MH_flagged_periods(MH_interuptions_path, SO2_data):
     # 1. Load the interruptions file using the path provided
-    interuptions = pd.read_csv(MH_interuptions_path)
+    interuptions = pd.read_csv(MH_interuptions_path, header = 0)
+    #helps to remove any white space that may affect the header naming
+    interuptions.columns = interuptions.columns.str.strip()
     
     # 2. Clean up flags: fill empty with 0 and ensure they are integers
-    flag_cols = ['so2_flag', 'other_flag'] 
+    flag_cols = ['flag'] 
     for col in flag_cols:
         if col in interuptions.columns:
             interuptions[col] = interuptions[col].fillna(0).astype(int)
@@ -6725,25 +7294,25 @@ def MH_flagged_periods(MH_interuptions_path, SO2_data):
     # 3. Ensure time columns are datetime objects
     # Use errors='coerce' just in case there's bad text in the date columns
     SO2_data['Date_time'] = pd.to_datetime(SO2_data['Date_time'])
-    interuptions['Start'] = pd.to_datetime(interuptions['Start'], dayfirst=True)
-    interuptions['End'] = pd.to_datetime(interuptions['End'], dayfirst=True)
+    interuptions['Start'] = pd.to_datetime(interuptions['Start'], format = "mixed", dayfirst=True)
+    interuptions['End'] = pd.to_datetime(interuptions['End'], format = "mixed", dayfirst=True)
 
     # 4. Initialize flags in SO2_data as 0
-    SO2_data['so2_remove'] = 0
-    SO2_data['other_remove'] = 0
+    SO2_data['flag'] = 0
+    #SO2_data['other_remove'] = 0
 
     # 5. Apply the windows from the interruptions table
     for _, row in interuptions.iterrows():
         mask = (SO2_data['Date_time'] >= row['Start']) & (SO2_data['Date_time'] <= row['End'])
-        if row['so2_flag'] == 1:
-            SO2_data.loc[mask, 'so2_remove'] = 1  
-        if row['other_flag'] == 1:
-            SO2_data.loc[mask, 'other_remove'] = 1
+        if row['flag'] == 1:
+            SO2_data.loc[mask, 'flag'] = 1  
+        #if row['other_flag'] == 1:
+           # SO2_data.loc[mask, 'other_remove'] = 1
 
     # 6. Filter for clean data
     SO2_data_clean = SO2_data[
-        (SO2_data['so2_remove'] == 0) & 
-        (SO2_data['other_remove'] == 0)].copy()
+        (SO2_data['flag'] == 0)].copy()# & 
+        #(SO2_data['other_remove'] == 0)].copy()
     plt.figure(figsize=(10, 5))
     plt.plot(SO2_data_clean["Date_time"], SO2_data_clean["amb_SO2_ppt"])
     plt.title("Cleaned SO2 Data (Flagged Periods Removed)",fontsize = 16)
