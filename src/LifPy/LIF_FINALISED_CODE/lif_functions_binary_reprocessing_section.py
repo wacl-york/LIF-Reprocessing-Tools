@@ -467,62 +467,7 @@ def import_bin_data(data_dir, date, file):
     return bin_data_array
 
 def deinterleave_bin_data(bin_data, channel_format, channel_count,
-                           rep_rate_Hz=200000):
-    """
-    De-interleaves raw binary data from multiple channels, combines high/low 
-    bytes where necessary, applies calibration, and calculates derived metrics.
-
-    Raw data is assumed to be interleaved by channel. The function processes 
-    each channel based on the provided format dictionary and calculates 
-    corrected and normalized counts.
-
-    Parameters
-    ----------
-    binary_data : numpy.ndarray
-        A 1D array of raw, interleaved data points.
-    channel_format : dict
-        A dictionary mapping output channel names (str) to their input indices 
-        (int) or high/low index pairs (list of int).
-        - Value as int (e.g., 2): Single channel index.
-        - Value as list [int, int] (e.g., [3, 4]): High-byte, Low-byte indices.
-    channel_count : int
-        The total number of channels (interleaving factor).
-    rep_rate_Hz : int, optional
-        The repetition rate (in Hz) of the laser, used to 
-        calculate the maximum theoretical count rate. Default is 200000.
-
-    Returns
-    -------
-    tuple
-        - binary_data_dict (dict): A dictionary containing all de-interleaved, 
-          combined, and derived data channels. Keys include original channel 
-          names, plus '_lin' (linearized) and '_norm' (normalized) for count 
-          data.
-        - lag (float or np.nan): The time difference (in ms) of a detected 
-          large time step, or NaN if no significant lag is found.
-
-    Notes
-    -----
-    - **De-interleaving:** 
-        Uses slicing (frames[idx::channel_count]) to separate the interleaved 
-        channels.
-    - **Byte Combination (if channel_ID is a list):** 
-        Combines 16-bit high-byte (multiplied by 65536) and 16-bit low-byte 
-        channels to form a 32-bit value.
-    - **Laser Power:** 
-        'laser_pwr_PT0' is converted from system units to mW by dividing by 
-        100,000.
-    - **Count Correction:**
-        - Values exceeding the maximum theoretical count rate 
-          (rep_rate_Hz / 100) are set to NaN.
-        - Linearized counts (`_lin`) are calculated using:
-          -ln(1 - (cts / max_cts)) * max_cts
-        - Normalized counts (`_norm`) are calculated using:
-          cts / laser power 
-    - **Lag Calculation:** 
-        Attempts to find a time step close to 20,000 ms (20 seconds) in the 
-        'time_ms' channel to identify a potential data break or lag.
-    """
+                           file, data_dir, rep_rate_Hz=200000):    
     
     frames = np.array(bin_data)
     decimate_arr = [frames[idx::channel_count] for idx in range(channel_count)]
@@ -550,21 +495,57 @@ def deinterleave_bin_data(bin_data, channel_format, channel_count,
 
     max_cts = rep_rate_Hz / 100
 
+#testing a new function format!
+    processing_variables = pd.read_csv(os.path.join(
+         data_dir, 'processing_variables.txt')
+         )
+    this_file_index = processing_variables[
+         processing_variables['bin_filename'] == file].index[0]
+
+    for channel in bin_data_dict.keys():
+        bin_data_dict[channel] = bin_data_dict[channel].astype(float)
+    for col in processing_variables.columns:
+        if '_shift' in col:
+            # Get the actual channel name (e.g., 'sig_counts' from 'sig_counts_shift')
+            for suffix in ['']:
+                channel_name = col.replace('_shift' , suffix)
+            # Check if this channel exists in our data
+            
+                if channel_name in bin_data_dict:
+                    shift_val = int(float(processing_variables[col][this_file_index]))
+                    
+                    if shift_val == 0:
+                        continue
+                        
+                    data = bin_data_dict[channel_name]
+                    orig_len = len(data)
+                    
+                    if shift_val > 0:
+                        # Move Right: Pad start, trim end
+                        shifted = np.pad(data, (shift_val, 0), mode='constant', constant_values=np.nan)
+                        bin_data_dict[channel_name] = shifted[:orig_len]
+                    else:
+                        # Move Left: Pad end, trim start
+                        abs_s = abs(shift_val)
+                        shifted = np.pad(data, (0, abs_s), mode='constant', constant_values=np.nan)
+                        bin_data_dict[channel_name] = shifted[abs_s:]
+                    
+                    print(f"Applied shift of {shift_val} to {channel_name}")
     for channel in list(channel_format):
         if 'counts' in channel:
             bin_data_dict[channel] = \
                 np.array([cts if cts < max_cts else np.nan for cts \
                           in bin_data_dict[channel]])
-
+    
             bin_data_dict[channel + '_lin'] = \
                 -np.log(1 - (bin_data_dict[channel] / max_cts)) * max_cts
-
+    
             bin_data_dict[channel + '_norm'] = \
                 bin_data_dict[channel + '_lin'] \
                     / (bin_data_dict['laser_pwr_PT0'])
     #added this in to try and see if we can get to the positive time values! 21/01/2026
-    if 'time_ms' in bin_data_dict:
-        bin_data_dict['time_ms'] = bin_data_dict['time_ms'].astype(np.int64) % 4294967296
+    #if 'time_ms' in bin_data_dict:
+       # bin_data_dict['time_ms'] = bin_data_dict['time_ms'].astype(np.int64) % 4294967296
     return bin_data_dict
  
 def gen_output_file(data_dir, data_freq, file, channel_format, HK_headers_dict
@@ -825,85 +806,6 @@ def gen_output_data(file, channel_format, data_dir, bin_data_dict, HK_data
         if 5 not in seed_LD_mode and 6 not in seed_LD_mode:
             print('No periods of laser dither detected, no 10Hz data processed')
             return
-    processing_variables = pd.read_csv(os.path.join(
-        data_dir, 'processing_variables.txt')
-        )
-    this_file_index = processing_variables[
-        processing_variables['bin_filename'] == file].index[0]
-    
-    for channel in bin_data_dict.keys():
-        bin_data_dict[channel] = bin_data_dict[channel].astype(float)
-    for col in processing_variables.columns:
-        if '_shift' in col:
-            # Get the actual channel name (e.g., 'sig_counts' from 'sig_counts_shift')
-            channel_name = col.replace('_shift', '')
-            
-            # Check if this channel exists in our data
-            if channel_name in bin_data_dict:
-                shift_val = int(float(processing_variables[col][this_file_index]))
-                
-                if shift_val == 0:
-                    continue
-                    
-                data = bin_data_dict[channel_name]
-                orig_len = len(data)
-                
-                if shift_val > 0:
-                    # Move Right: Pad start, trim end
-                    shifted = np.pad(data, (shift_val, 0), mode='constant', constant_values=np.nan)
-                    bin_data_dict[channel_name] = shifted[:orig_len]
-                else:
-                    # Move Left: Pad end, trim start
-                    abs_s = abs(shift_val)
-                    shifted = np.pad(data, (0, abs_s), mode='constant', constant_values=np.nan)
-                    bin_data_dict[channel_name] = shifted[abs_s:]
-                
-                print(f"Applied shift of {shift_val} to {channel_name}")
-    """
-    # Shift relevant columns as needed
-    for channel in channel_format:
-        if channel not in ['sig_counts', 'ref_counts', 'seed_LD_current']:
-            continue
-        
-        shift_column = f'{channel}_shift'
-        if shift_column in processing_variables.columns:
-            #12/01/2026 changes!
-            shift_value = int(float(processing_variables[shift_column][this_file_index]))
-        else:
-            shift_value = 0
-            
-        data_array = bin_data_dict[channel]
-        original_length = len(data_array)
-        
-        if shift_value == 0:
-            continue
-        elif shift_value > 0:
-            #12/01/2026: making them astype(float); test!
-        # Positive shift (data moves right): Pad the beginning (left) with NaNs.
-            pad_width = shift_value
-            shifted_array = np.pad(
-                data_array.astype(float), 
-                [pad_width, 0], 
-                mode='constant', 
-                constant_values=np.nan
-            )
-            # Slice off the end to maintain original length
-            bin_data_dict[channel] = shifted_array[:original_length]
-       
-        elif shift_value < 0:
-        # Negative shift (data moves left): Pad the end (right) with NaNs.
-            abs_shift = int(abs(shift_value))
-            pad_width = (0, abs_shift)
-            shifted_array = np.pad(
-                data_array.astype(float), 
-                pad_width, 
-                mode='constant', 
-                constant_values=np.nan
-            )
-            # Slice off the beginning to maintain original length
-            bin_data_dict[channel] = shifted_array[abs_shift:]   
-            #bin_data_dict[channel] = bin_data_dict[channel].astype(int)
-    """
     
     cts_ind_arr = [i for i in range(0, len(list(bin_data_dict)))
                        if 'sig_' in list(bin_data_dict)[i]
@@ -1187,7 +1089,7 @@ def reprocess_binary_data(date, file, log_start_datetime, HK_headers_dict
         data_dir, date, file
         )
     bin_data_dict = deinterleave_bin_data(
-        bin_data, channel_format, channel_count
+        bin_data, channel_format, channel_count, file, data_dir
         )
     processed_file, nan_data = gen_output_file(
         data_dir, data_freq, file, channel_format, HK_headers_dict
