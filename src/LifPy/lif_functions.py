@@ -19,6 +19,11 @@ import pytz
 
 from windrose import WindroseAxes
 
+import matplotlib as mpl
+
+# Set the chunksize to a high value (e.g., 10,000)
+mpl.rcParams['agg.path.chunksize'] = 10000
+
 
 """
 This first section contains all of the sub-functions that are subsequently 
@@ -1649,8 +1654,8 @@ def cell_flow_adjusted_TAS(cts_data):
     cts_data["Date_time"] = pd.to_datetime(cts_data["Date_time"])
     cts_data_o["Date_time"] = pd.to_datetime(cts_data_o["Date_time"])
     
-    d = cts_data[300:900]
-    w = cts_data_o[300:900]
+    d = cts_data[15000:16000]
+    w = cts_data_o[15000:16000]
     
     fig, flow_corr= plt.subplots(1,1)
     flow_corr.plot(d["Date_time"], d["Cell_Flow"], color = "green", label = "Cell_Flow_uncorrected")
@@ -1753,9 +1758,152 @@ def cell_flow_adjusted_MACE_HEAD(cts_data):
     
     return cts_data_o
 
-def ref_normalise_test(data, channels):
-    print('\nNormalising counts to the reference cell')
+def cell_pressure_adjusted_for_zeros(data):
+    #need to account for the 2hour deviations within the DY195 data.
+    import numpy as np
+    from scipy.fft import rfft, rfftfreq
     
+    from scipy import signal
+    output_df = data.copy() # need the original version to then map it back on to!
+    cts_data_zero = data.copy()
+    
+    #get the zero data!
+    start_of_zero = (cts_data_zero['Task'] == 4) & (cts_data_zero['Task'].shift(1) != 4)
+    cts_data_zero['zero_number'] = start_of_zero.cumsum()
+    cts_data_zero = cts_data_zero[(cts_data_zero['Task']==4) & (cts_data_zero['Peak_find_flag']==0)]
+    #grouped_zeros = cts_data_zero.groupby('zero_number')
+    
+    cts_data_zero["Date_time"] = pd.to_datetime(cts_data_zero["Date_time"])
+    output_df["Date_time"] = pd.to_datetime(output_df["Date_time"])
+    ch_list = ['sig_diff_cts_norm']#chnage this for the zero
+    sr = 10  # Your sampling rate
+    cutoff_hz = 1 / 5400 
+    
+    #t_hours = cts_data_zero["Date_time"].values
+    # Use a 4th order Butterworth for a sharp 'cutoff'
+    sos = signal.butter(4, cutoff_hz, 'hp', fs=sr, output='sos')
+    for channel in ch_list:  
+        mask = cts_data_zero[channel].notna()
+    #ref_diff = cts_data.loc[mask, 'ref_diff_cts_norm'].values
+    #sig_diff = cts_data.loc[mask, 'sig_diff_cts_norm'].values
+        data_to_filter = cts_data_zero.loc[mask, channel].values
+        
+        if len(data_to_filter) > 0:
+            # 3. Apply the High-Pass Filter
+            # This removes the slow 2-hour deviations
+            filtered_data = signal.sosfiltfilt(sos, data_to_filter)
+            
+            # 4. Re-Trend and Save
+            # We add back the mean to maintain the baseline level
+            baseline = np.mean(data_to_filter)
+            output_df.loc[mask, channel] = filtered_data + baseline
+    #uses 4 so that it deffo cuts off the 2.24 hour featrues. 1 would be quite a gentle trim but we need to be sharp.
+    #need to use the double and the zero phase so that it runs i forward and then backwards aswell andit cancels out the time shift in the data.
+    # --- Step 2: Apply the Filter ---
+    # We use the 'pressure' array (which already has NaNs removed)
+    # 'sosfiltfilt' prevents the 'startup spike' and keeps timing perfect
+    #filtered_dev = signal.sosfiltfilt(sos, ref_diff, sig_diff)
+    #simply take the mean of the pressure and add back in the 10Hz over the top of the data
+    # --- Step 3: Re-Trend (Add the 604psi baseline back) ---
+   #output_df.loc[mask, 'ref_diff_cts_norm', 'sig_diff_cts_norm'] = filtered_dev + np.mean(pressure)
+    
+    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(15, 10))
+    
+    # Top Plot: The Original messy data
+    ax1.plot(cts_data_zero["Date_time"], cts_data_zero["ref_diff_cts_norm"], color='gray', label='Original')
+    ax1.set_title("Original Cell Pressure")
+    ax1.set_ylabel("Pressure (mbar)")
+    ax1.legend()
+    
+    # Bottom Plot: The Cleaned data (10Hz preserved, 2.24hr removed)
+    ax2.plot(output_df["Date_time"],output_df["ref_diff_cts_norm"], color='blue', linewidth=0.5, label='Cleaned (High-Freq Kept)')
+    ax2.set_title("xhr deviation removed from data")
+    ax2.set_ylabel("Pressure (mbar)")
+    ax2.set_xlabel("Time (Hours)")
+    
+    # Optional: Zoom in on Y to see the 10Hz noise clearly
+    # ax2.set_ylim(603.5, 605.5) 
+    
+    plt.tight_layout()
+    plt.show()
+    plt.savefig("./ detrending of the data and the new trend.png")
+    # Instead of: data['Date_time'] = pd.to_datetime(data['Date_time'])
+    if 'Date_time' in output_df.columns:
+        output_df['Date_time'] = pd.to_datetime(output_df['Date_time'])
+    elif output_df.index.name == 'Date_time':
+        output_df.index = pd.to_datetime(output_df.index)
+    else:
+        print("Available columns:", output_df.columns)
+        raise KeyError("Date_time column not found!")
+    return output_df
+
+def cell_pressure_adjusted(cts_data):
+    #need to account for the 2hour deviations within the DY195 data.
+    import numpy as np
+    from scipy.fft import rfft, rfftfreq
+    
+    from scipy import signal
+    output_df = cts_data.copy()
+    
+    cts_data["Date_time"] = pd.to_datetime(cts_data["Date_time"])
+    output_df["Date_time"] = pd.to_datetime(output_df["Date_time"])
+    
+    mask = cts_data['ref_diff_cts_norm'].notna()
+    pressure = cts_data.loc[mask, 'ref_diff_cts_norm'].values
+    
+    # --- Step 1: Design the Filter ---
+    # We want to KEEP everything faster than 1.5 hours
+    # 1.5 hours = 5400 seconds
+    sr = 10  # Your sampling rate
+    cutoff_hz = 1 / 5400 
+    
+    t_hours = cts_data["Date_time"].values
+    # Use a 4th order Butterworth for a sharp 'cutoff'
+    sos = signal.butter(4, cutoff_hz, 'hp', fs=sr, output='sos')
+    #uses 4 so that it deffo cuts off the 2.24 hour featrues. 1 would be quite a gentle trim but we need to be sharp.
+    #need to use the double and the zero phase so that it runs i forward and then backwards aswell andit cancels out the time shift in the data.
+    # --- Step 2: Apply the Filter ---
+    # We use the 'pressure' array (which already has NaNs removed)
+    # 'sosfiltfilt' prevents the 'startup spike' and keeps timing perfect
+    filtered_dev = signal.sosfiltfilt(sos, pressure)
+    #simply take the mean of the pressure and add back in the 10Hz over the top of the data
+    # --- Step 3: Re-Trend (Add the 604psi baseline back) ---
+    output_df.loc[mask, 'ref_diff_cts_norm'] = filtered_dev + np.mean(pressure)
+    
+    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(15, 10))
+    
+    # Top Plot: The Original messy data
+    ax1.plot(cts_data["Date_time"], cts_data["ref_diff_cts_norm"], color='gray', label='Original')
+    ax1.set_title("Original Cell Pressure")
+    ax1.set_ylabel("Pressure (mbar)")
+    ax1.legend()
+    
+    # Bottom Plot: The Cleaned data (10Hz preserved, 2.24hr removed)
+    ax2.plot(output_df["Date_time"],output_df["ref_diff_cts_norm"], color='blue', linewidth=0.5, label='Cleaned (High-Freq Kept)')
+    ax2.set_title("2.24hr deviation removed from data")
+    ax2.set_ylabel("Pressure (mbar)")
+    ax2.set_xlabel("Time (Hours)")
+    
+    # Optional: Zoom in on Y to see the 10Hz noise clearly
+    # ax2.set_ylim(603.5, 605.5) 
+    
+    plt.tight_layout()
+    plt.show()
+    plt.savefig("./ detrending of the data and the new trend.png")
+    # Instead of: data['Date_time'] = pd.to_datetime(data['Date_time'])
+    if 'Date_time' in output_df.columns:
+        output_df['Date_time'] = pd.to_datetime(output_df['Date_time'])
+    elif output_df.index.name == 'Date_time':
+        output_df.index = pd.to_datetime(output_df.index)
+    else:
+        print("Available columns:", output_df.columns)
+        raise KeyError("Date_time column not found!")
+    return output_df
+
+
+def ref_normalise(data, ref_cts_diff_limit, channels):
+    print('\nNormalising counts to the reference cell')
+    ref_cts_diff_limit = ref_cts_diff_limit
     data = data.copy()
     data['Date_time'] = pd.to_datetime(data['Date_time'])
      
@@ -1764,59 +1912,17 @@ def ref_normalise_test(data, channels):
 
     fig, ref_check = plt.subplots(figsize=(10, 6))
     ref_check.plot(data['Date_time'], data['ref_diff_cts_norm'])
+    ref_check.axhline(y=ref_cts_diff_limit, color = "r")
+   # plt.ylim(ymin = 500000, ymax = 1000000)
     plt.ylabel("ref_diff_cts_norm", fontsize=24)
     plt.xlabel("Datetime", fontsize=24)
     plt.xticks(fontsize=18)
     plt.yticks(fontsize=18)
     
     return data
-"""
-        removal_ref = removal_ref 
-        if removal_ref is True:
-            start_date = '2025-06-05 08:55:00'
-            end_date = '2025-06-05 12:00:00'
-            start_date_x = '2025-06-06 08:59:00'
-            end_date_x = '2025-06-06 09:02:00'
-            mask = (
-                ((data['zero_midpoint'] >= start_date) & (data['zero_midpoint'] <= end_date))|
-                    ((data['zero_midpoint'] >= start_date_x) & (data['zero_midpoint'] <= end_date_x))
-                    )
-            data.loc[mask, "ref_diff_cts_norm"] =np.nan
-            
-            
-            #convert them to a value to be abel to do the interpolation steps 
-            mask = data['Date_time'].values
-            
-            x_sorted = mask.values
-            y_sorted = mask.values
-            
-            x_numeric = x_sorted.astype(np.int64)
-            from scipy.interpolate import make_interp_spline
-            # 1. Create Spline mapping
-            quadratic_spline = make_interp_spline(x_numeric, y_sorted, k=1)
 
-            # 2. Generate numeric grid
-            x_grid_numeric = np.linspace(x_numeric.min(), x_numeric.max(), 12000)
-            y_quadratic = quadratic_spline(x_grid_numeric)
-            
-            # 3. Convert grid back to datetime for plotting and merging
-            x_grid_datetime = pd.to_datetime(x_grid_numeric)
-            
-            data = pd.DataFrame({
-                'Date_time': x_grid_datetime,
-                'ref_diff_cts_norm': y_quadratic
-            }).sort_values('Date_time')
-            
-            data = data.sort_values(by="Date_time")
-            
-            data[f'{channel}_diff_cts_ref_norm'] = data[f'{channel}_diff_cts_norm'] / data['ref_diff_cts_norm']
-""" 
 
-#under construction!
 def remove_points(data, date_ranges):
-    #essentially, we need to either rename the tasks for the time periods flagged from the interpolation
-    #or delete them from the data entirely.
-    
     data = data
     data_to_remove = data.copy()
     
@@ -1859,61 +1965,108 @@ def time_frame(cts_data_ref_norm, start_date, end_date):
         (cts_data_ref_norm_time_sectioned['Date_time'] <= end_dt)]
     
     return cts_data_ref_norm_time_sectioned
+"""
+def change_task_values(data):
+    # 1. Work on a copy to avoid 'SettingWithCopy' warnings
+    df = data.copy()
+    is_numeric_task = pd.to_numeric(f['Task'], errors='coerce').notna()
+    df = df[is_numeric_task].copy()
+    df["Date_time"] = pd.to_datetime(df["Date_time"], errors='coerce')
+    df = df.dropna(subset=["Date_time", "Task"])
+    df["Task"] = df["Task"].astype(int)
+    
+    # Sort and reset index ONCE. We keep this 0, 1, 2... index until the very end.
+    df = df.sort_values("Date_time").reset_index(drop=True)
+    df_org = df.copy() 
+    
+    # Initialize arrays to hold your flags
+    #currently the length of the data, so could this be why we get the odd trimming into other bits of the data?
+    peak_flag_array = np.zeros(len(df), dtype=int)
+  
+    task_array = df['Task'].to_numpy()
+    
+    task_definitions = df["Task"].unique()
+    #set time limit for the plots to display data
+    plot_start = pd.to_datetime(start_date)
+    plot_end = pd.to_datetime(end_date)
+    
+    condition_mask = df['ref_diff_cts_norm'] < ref_cts_diff_limit
+    condition_indices = df.index[condition_mask].to_numpy()
+    
+    for index in condition_indices:
+        start = max(0, index - pre_PF)
+        end = min(len(data) - 1, index + post_PF)
+        peak_flag_array[start:end+1] = 1
+    task_change = data.Task.shift() != df.Task
+    task_switch_indices = data.index[task_change].to_numpy()
+    
+    #for campagin in campagin_list:
+       # if campagin = "TASMANIA":
+        # Use a temporary mask so we don't overwrite the global index yet
+       #    to do :make this work for each section that we state for the different campagin names (though they should follow a simialr pattern?) 
+        #HAVE TO USE AND AS IT HAS A LOW PRECEDENCE AND WAITS FOR THE COMP OF THE TWO TASKS TO OCCUR BEFORE IT DOES ANY OF THE FOLLOWING STEPS
+        #& WOULD LOOK FOR ==0 AND ==2 SO FALSE.
+    for index in task_switch_indices:
+        if index > 0:
+    if df.iloc[index]['Task'] == 0 and df.iloc[index-1]['Task'] == 4 or df.iloc[index-1]['Task'] == 1:
+        df["Task"] =0    
+    elif df.iloc[index]['Task'] == 0 and df.iloc[index-1]['Task'] == 2:
+        mapping = {0.0: 2.0, 2.0: 0.0, 0: 2, 2: 0}
+    
+    # 3. Apply the swap in ONE step
+    # .map() with a lambda is safe for columns with NaNs
+        df['Task'] = df['Task'].map(lambda x: mapping.get(x, x))
+    
+        print("Swapped 0 <-> 2. NaNs were ignored.")
+    return df
+"""
+"""
+    # 4. Handle the '4' blocks sandwiched between 2s
+    # We fill NaNs with a temporary value (-99) so they don't break the grouping
+    temp_task = df['Task'].fillna(-99)
+    group_id = (temp_task != temp_task.shift()).cumsum()
+    
+    for _, group in df.groupby(group_id):
+        # If the first value of this block is 4
+        if group['Task'].iloc[0] == 4.0:
+            start_idx = group.index[0]
+            end_idx = group.index[-1]
+            
+            # Check the neighbors (previous and next rows)
+            prev_val = df['Task'].get(start_idx - 1)
+            next_val = df['Task'].get(end_idx + 1)
+            
+            # If it's a 4-block between two 2s, turn it into a 2
+            if prev_val == 2.0 and next_val == 2.0:
+                df.loc[group.index, 'Task'] = 2.0
+"""
+    
 
-def set_flags(data, pre_TS, post_TS, pre_PF, post_PF, ref_cts_diff_limit):
-    """
-    Sets two distinct types of flagging mechanisms within the processed data:
-    a 'Peak_find_flag' to mask periods of low reference counts, and a time-based
-    flag within the 'Task' column to mark periods around task switches.
+def set_flags_0403_TEST(data, ref_cts_diff_limit, pre_PF, post_PF, start_date, end_date, campagin_list ,plot = True):
     
-    The function operates in two main phases:
+    #campagin_list = {"DY195", "Tasmania", "Mace Head"}
     
-    1.  **Peak Find Flagging:** Identifies periods where the normalized reference
-        counts ('ref_diff_cts_norm') fall below a specified limit. It then sets
-        the 'Peak_find_flag' to 1 for a window of time surrounding these events
-        to exclude potentially noisy data from the laser falling off the peak.
+    # --- 1. Data Cleaning & Setup ---
+    is_numeric_task = pd.to_numeric(data['Task'], errors='coerce').notna()
+    data = data[is_numeric_task].copy()
+    data["Date_time"] = pd.to_datetime(data["Date_time"], errors='coerce')
+    data = data.dropna(subset=["Date_time", "Task"])
+    data["Task"] = data["Task"].astype(int)
     
-    2.  **Task Switch Flagging:** Identifies transitions in the 'Task' column
-        (indicating system operation mode changes) and sets the 'Task' value to
-        '8' for a defined window of time around each switch, effectively flagging
-        these transition periods as invalid for analysis.
+    # Sort and reset index ONCE. We keep this 0, 1, 2... index until the very end.
+    data = data.sort_values("Date_time").reset_index(drop=True)
+    data_org = data.copy() 
     
-    Parameters
-    ----------
-    data : pandas.DataFrame
-        The input DataFrame containing the processed count data, including the
-        'Task' column and 'ref_diff_cts_norm'.
-    pre_TS : int
-        The number of data points (time steps) *before* a task switch to flag
-        (i.e., set 'Task' to 8).
-    post_TS : int
-        The number of data points (time steps) *after* a task switch to flag
-        (i.e., set 'Task' to 8).
-    pre_PF : int
-        The number of data points (time steps) *before* a low reference count
-        event to set the 'Peak_find_flag' to 1.
-    post_PF : int
-        The number of data points (time steps) *after* a low reference count
-        event to set the 'Peak_find_flag' to 1.
-    ref_cts_limit : float or int
-        The threshold value for 'ref_diff_cts_norm'. Data points below this limit
-        trigger the 'Peak_find_flag'.
-    
-    Returns
-    -------
-    pandas.DataFrame
-        The modified DataFrame with the following changes:
-        - The new column 'Peak_find_flag' (0 or 1) is added.
-        - The 'Task' column is updated to 8 during task transition periods.
-        - The 'Date_time' column is set as the DataFrame index.
-        - The temporary 'Task_Change' column is dropped.
-    """
-    print('\nsetting flags for transient data periods')
-    
-    data = data.reset_index(drop=True)
+    # Initialize arrays to hold your flags
+    #currently the length of the data, so could this be why we get the odd trimming into other bits of the data?
     peak_flag_array = np.zeros(len(data), dtype=int)
-    data["Task_Change"] = data.Task.shift() != data.Task
-    task_switch_indices = data.index[data['Task_Change']].to_numpy()
+  
+    task_array = data['Task'].to_numpy()
+    
+    task_definitions = data["Task"].unique()
+    #set time limit for the plots to display data
+    plot_start = pd.to_datetime(start_date)
+    plot_end = pd.to_datetime(end_date)
     
     condition_mask = data['ref_diff_cts_norm'] < ref_cts_diff_limit
     condition_indices = data.index[condition_mask].to_numpy()
@@ -1921,83 +2074,291 @@ def set_flags(data, pre_TS, post_TS, pre_PF, post_PF, ref_cts_diff_limit):
     for index in condition_indices:
         start = max(0, index - pre_PF)
         end = min(len(data) - 1, index + post_PF)
-        
         peak_flag_array[start:end+1] = 1
+    task_change = data.Task.shift() != data.Task
+    task_switch_indices = data.index[task_change].to_numpy()
     
-    data['Peak_find_flag'] = peak_flag_array
-    
-    task_array = data['Task'].to_numpy()
-    
+    #for campagin in campagin_list:
+       # if campagin = "TASMANIA":
+        # Use a temporary mask so we don't overwrite the global index yet
+       #    to do :make this work for each section that we state for the different campagin names (though they should follow a simialr pattern?) 
+        #HAVE TO USE AND AS IT HAS A LOW PRECEDENCE AND WAITS FOR THE COMP OF THE TWO TASKS TO OCCUR BEFORE IT DOES ANY OF THE FOLLOWING STEPS
+        #& WOULD LOOK FOR ==0 AND ==2 SO FALSE.
     for index in task_switch_indices:
         if index > 0:
-            start = max(0, index - pre_TS)
-            end = min(len(data) - 1, index + post_TS)
+            if campagin_list == "MACE_HEAD":
+                if data.iloc[index]['Task'] == 0 and data.iloc[index-1]['Task'] == 4:
+                    pre_TS = 150 #trimming the zero
+                    post_TS = 325 #ambient
 
-            task_array[start:end+1] = 8 
+                elif data.iloc[index]['Task'] == 4 and data.iloc[index-1]['Task'] == 0:
+                    pre_TS = 180 #trimming ambient
+                    post_TS =150 #trim zero
+
+                elif data.iloc[index]['Task'] == 1 and data.iloc[index-1]['Task'] == 4:
+                    pre_TS = 30 #trim zero
+                    post_TS = 10 #trim the 1
+                   
+                elif data.iloc[index]['Task'] == 0 and data.iloc[index-1]['Task'] == 1:
+                    pre_TS = 10 # trim scan
+                    post_TS = 10#eating into the cal 
+                  
+                elif data.iloc[index]['Task'] == 1 and data.iloc[index-1]['Task'] == 0:
+                    pre_TS = 10# eating the 1
+                    post_TS = 10 # eating the amb 
+                  
+                elif data.iloc[index]['Task'] == 3 and data.iloc[index-1]['Task'] == 0:
+                    pre_TS = 1 #trimming the amb
+                    post_TS = 1 #eating the scan
+                    
+                elif data.iloc[index]['Task'] == 2 and data.iloc[index-1]['Task'] == 3:
+                    pre_TS = 10 # eating the scan
+                    post_TS = 10 #eating cal
+                
+                elif data.iloc[index]['Task'] == 0 and data.iloc[index-1]['Task'] == 2:
+                    pre_TS = 25 # eating the cal
+                    post_TS = 310 #eating amb   
+  
+                else:
+                    #data.iloc[index]['Task'] == 0 & data.iloc[index-1]['Task'] == 1:
+                    pre_TS = 10
+                    post_TS = 10
+           
+            elif campagin_list == "TASMANIA": #and data.iloc[index]['Task'] == 0:
+                if data.iloc[index]['Task'] == 1 and data.iloc[index-1]['Task'] == 4:
+                    #taking off 100 either side of this
+                    pre_TS = 500 #trimming the zero 
+                    post_TS = 10 #taking out of 1 
+                    #zero
+                elif data.iloc[index]['Task'] == 4 and data.iloc[index-1]['Task'] == 0:
+                    pre_TS = 1000 #taking it out of the ambient
+                    post_TS = 250 #trim zero
+                    #ambient
+                elif data.iloc[index]['Task'] == 0 and data.iloc[index-1]['Task'] == 4:
+                    pre_TS = 250 #trim zero
+                    post_TS = 2000 #trim the ambient
+                   #cal
+                elif data.iloc[index]['Task'] == 2 and data.iloc[index-1]['Task'] == 1:
+                    pre_TS = 10 # eating the pre-cal factor
+                    post_TS = 425#eating into the cal #400 is also ok
+                    #ambient
+                elif data.iloc[index]['Task'] == 0 and data.iloc[index-1]['Task'] == 2:
+                    pre_TS = 100# eating the cal
+                    post_TS = 1600 # eating the amb
+                   #ambient
+                elif data.iloc[index]['Task'] == 0 and data.iloc[index-1]['Task'] == 0:
+                    pre_TS = 1
+                    post_TS = 1 #eating the cal
+                    #scan
+                elif data.iloc[index]['Task'] == 3 and data.iloc[index-1]['Task'] == 4:
+                    pre_TS = 100 # eating the zero
+                    post_TS = 10 #eating scan
+                else:
+                    #data.iloc[index]['Task'] == 0 & data.iloc[index-1]['Task'] == 1:
+                    pre_TS = 10
+                    post_TS = 10
+                
+                
             
-    data['Task'] = task_array
-    
-    data.index = data['Date_time']
-    data = data.drop(columns=['Task_Change'])
-    
-    fig, ref_check = plt.subplots(1, 1, figsize=(12, 6))
-    ref_check.plot(
-        data['Date_time'], 
-        data['ref_diff_cts'])
-    plt.axhline(ref_cts_diff_limit, color = "red")
-    plt.ylabel("ref_diff_counts", fontsize=24)
-    plt.xlabel("Datetime", fontsize=24)
-    
-    plt.xticks(fontsize=24) 
-    plt.yticks(fontsize=24)
-    plt.tight_layout()
-    
-    return data
+            elif campagin_list == "DY195":
+                if data.iloc[index]['Task'] == 0 and data.iloc[index-1]['Task'] == 2:
+                    #taking off 100 either side of this
+                    pre_TS = 100 #taking it out of the end of the cal
+                    post_TS = 1000 #trimming ambient 1200 for 02 to 06
+                    #print("data.TAsk.index", data.iloc[index]['Task'])
+                    #print("data.TAsk.index-1", data.iloc[index-1]['Task'])
+                    
+                    #ambient after a zero
+                elif data.iloc[index]['Task'] == 0 and data.iloc[index-1]['Task'] == 4:
+                    pre_TS = 550 #taking it out of the end of the zero
+                    post_TS = 250 #trimming ambient 400 for 02 to 06
+                    #print("data.TAsk.index", data.iloc[index]['Task'])
+                    #print("data.TAsk.index-1", data.iloc[index-1]['Task'])
+                    
+                    #zero ==4
+                elif data.iloc[index]['Task'] == 4 and data.iloc[index-1]['Task'] == 0:
+                    pre_TS = 800 #used for trimming end of ambient!
+                    post_TS = 200
+                   # print("data.TAsk.index", data.iloc[index]['Task'])
+                   # print("data.TAsk.index-1", data.iloc[index-1]['Task'])
+                   #zero ==4, when it is before a pre-cal of 1
+                    
+                   #pre-cal ==1
+                elif data.iloc[index]['Task'] == 1 and data.iloc[index-1]['Task'] == 4:
+                    pre_TS = 50
+                    post_TS = 20
+                   # print("data.TAsk.index", data.iloc[index]['Task'])
+                    #print("data.TAsk.index-1", data.iloc[index-1]['Task'])
+                   
+                    #scan ==3
+                elif data.iloc[index]['Task'] == 3 and data.iloc[index-1]['Task'] == 4:
+                    pre_TS = 1
+                    post_TS = 1
+                   # print("data.TAsk.index", data.iloc[index]['Task'])
+                   # print("data.TAsk.index-1", data.iloc[index-1]['Task'])
+                    
+                   #cal == 2
+                elif data.iloc[index]['Task'] == 2 and data.iloc[index-1]['Task'] == 1:
+                    pre_TS = 10
+                    post_TS = 500 #eating the cal
+                   # print("data.TAsk.index", data.iloc[index]['Task'])
+                   # print("data.TAsk.index-1", data.iloc[index-1]['Task'])
+                   #random?
+                elif data.iloc[index]['Task'] == 6 and data.iloc[index-1]['Task'] == 2:
+                    pre_TS = 10
+                    post_TS = 10 #eating the cal
+                      # print("data.TAsk.index", data.iloc[index]['Task'])
+                      # print("data.TAsk.index-1", data.iloc[index-1]['Task'])
+                #anything else, shoudl capture well as the cals are always at the beginning of the dither period!
+                #figure out a way to account for the cal beg part 
+                elif data.iloc[index]['Task'] == 2 and data.iloc[index-1]['Task'] == 2:
+                    pre_TS = 0
+                    post_TS = 0
+                elif data.iloc[index]['Task'] == 1 and data.iloc[index-1]['Task'] == 0:
+                    pre_TS = 80
+                    post_TS = 10
+                else:
+                    #data.iloc[index]['Task'] == 0 & data.iloc[index-1]['Task'] == 1:
+                    pre_TS = 1
+                    post_TS = 2
+            
+            
+            start = max(0, index - pre_TS)
+            #still just taking values off from before the change. I want it ot take from after the tas change
+            #print(start)
+            end = min(len(data) - 1, index + post_TS)
+            #print(end)
+            task_array[start:end+1] = 8 
+            if start < end:
+                task_array[start:end+1] = 8 
+            else:
+                print("This does not work!")    
 
-def zero_correct_average(data, channels, removal_zero, plot=False):
+               # print("data.TAsk.index", data.iloc[index]['Task'])
+               # print("data.TAsk.index-1", data.iloc[index-1]['Task'])
+               # print("I have had to do the else statement here!")
+#so the start is now larger than the end due to this max thing, yes? 
+    data['Task'] = task_array
+    data['Peak_find_flag'] = peak_flag_array
+    data.index = data['Date_time']
+  # We set the index ONLY at the very end to prevent breaking the logic blocks
+    
+    if plot is True:
+        #have a mask for each section to be able to maks them and colour them as we need.
+        clean_mask = (data['Task'] != 8) & (data['Peak_find_flag'] != 1) 
+        data_clean = data[clean_mask]
+        
+        clean_mask_ambient = (data['Task'] != 8) & (data['Peak_find_flag'] != 1) &(data["Task"] ==0)
+        data_clean_ambient = data[clean_mask_ambient]
+        
+        clean_mask_zero = (data['Task'] != 8) & (data['Peak_find_flag'] != 1) &(data["Task"] ==4)
+        data_clean_zero = data[clean_mask_zero]
+        
+        clean_mask_cal = (data['Task'] != 8) & (data['Peak_find_flag'] != 1) &(data["Task"] ==2)
+        data_clean_cal = data[clean_mask_cal]
+        
+        clean_mask_pre_cal = (data['Task'] != 8) & (data['Peak_find_flag'] != 1) &(data["Task"] ==1)
+        data_clean_pre_cal = data[clean_mask_pre_cal]
+        
+        #for the orignal data to see how much has been chopped off
+        clean_masko = (data_org['Task'] != 8) 
+        data_cleano = data_org[clean_masko]
+        
+        clean_mask_ambiento = (data_org['Task'] != 8)  &(data_org["Task"] ==0)
+        data_clean_ambiento = data_org[clean_mask_ambiento]
+        
+        clean_mask_zeroo = (data_org['Task'] != 8) &(data_org["Task"] ==4)
+        data_clean_zeroo = data_org[clean_mask_zeroo]
+        
+        clean_mask_calo = (data_org['Task'] != 8)  &(data_org["Task"] ==2)
+        data_clean_calo = data_org[clean_mask_calo]
+        
+        clean_mask_pre_calo = (data_org['Task'] != 8) &(data_org["Task"] ==1)
+        data_clean_pre_calo = data_org[clean_mask_pre_calo]
+        
+        #actial pltos needed with time on
+        fig, r = plt.subplots(5, 1, sharex=True, figsize=(12, 8))
+        fig.suptitle("Task 0: Ambient (Original vs Cuts)", fontsize=16)
+        r[0].plot(data_org["Date_time"], data_org["sig_diff_cts_ref_norm"], 'g', label="Original data")
+        r[0].set_ylim(-0.03, 0.25)
+        r[1].plot(data_clean_ambient["Date_time"], data_clean_ambient["sig_diff_cts_ref_norm"], color="orange", label="Ambient")
+        r[1].plot(data_clean_zero["Date_time"], data_clean_zero["sig_diff_cts_ref_norm"], color="deeppink", label="Zero")
+        r[1].plot(data_clean_cal["Date_time"], data_clean_cal["sig_diff_cts_ref_norm"], color= "r", label="Cal")
+        r[1].plot(data_clean_pre_cal["Date_time"], data_clean_pre_cal["sig_diff_cts_ref_norm"], color= "gold", label="Pre-Cal")
+        r[1].set_ylim(-0.03, 0.25)
+        r[2].plot(data_cleano["Date_time"], data_cleano["sig_diff_cts_ref_norm"], 'g', alpha=0.6, label = "Original data")
+        r[2].plot(data_clean_ambiento["Date_time"], data_clean_ambiento["sig_diff_cts_ref_norm"], color="orange", label="Ambient", alpha = 0.5)
+        r[2].plot(data_clean_zeroo["Date_time"], data_clean_zeroo["sig_diff_cts_ref_norm"], color="deeppink", label="Zero", alpha = 0.5)
+        r[2].plot(data_clean_calo["Date_time"], data_clean_calo["sig_diff_cts_ref_norm"], color= "r", label="Cal", alpha = 0.5)
+        r[2].plot(data_clean_pre_calo["Date_time"], data_clean_pre_calo["sig_diff_cts_ref_norm"], color= "gold", label="Pre-Cal")
+        r[2].set_ylabel("Original data just sectioned into the tasks")
+        r[2].set_ylim(-0.03, 0.25)
+        r[3].plot(data_cleano["Date_time"], data_cleano["sig_diff_cts_ref_norm"], 'g', alpha=0.6, label = "Original data")
+        r[3].plot(data_clean_ambient["Date_time"], data_clean_ambient["sig_diff_cts_ref_norm"], color="orange", label="Ambient", alpha = 0.5)
+        r[3].plot(data_clean_zero["Date_time"], data_clean_zero["sig_diff_cts_ref_norm"], color="deeppink", label="Zero", alpha = 0.5)
+        r[3].plot(data_clean_cal["Date_time"], data_clean_cal["sig_diff_cts_ref_norm"], color= "r", label="Cal", alpha = 0.5)
+        r[3].plot(data_clean_pre_cal["Date_time"], data_clean_pre_cal["sig_diff_cts_ref_norm"], color= "gold", label="Pre-Cal")
+        r[3].set_ylabel("Trimmed data just sectioned into the tasks")
+        r[3].set_ylim(-0.03, 0.25)
+        
+        r[4].plot(data_cleano["Date_time"], data_cleano["Task"], color = "red")
+        #for ax in r: 
+            #ax.set_ylim(-0.03, 0.15)
+        for ax in r: 
+            ax.set_xlim(plot_start, plot_end)
+        for ax in r:
+            ax.legend(loc='upper right')
+        #plt.savefig("./ ambient.png")
+        plt.show()
+        
+        data_cleano = data_cleano.set_index('Date_time')
+        data_clean_ambient = data_clean_ambient.set_index('Date_time')
+        data_clean_cal = data_clean_cal.set_index('Date_time')
+        data_clean_pre_cal = data_clean_pre_cal.set_index('Date_time')
+        data_clean_zero = data_clean_zero.set_index('Date_time')
+        
+        data_cleano = data_cleano.resample("1 min").mean().copy()
+        data_clean_ambient = data_clean_ambient.resample("1 min").mean().copy()
+        data_clean_cal = data_clean_cal.resample("1 min").mean().copy()
+        data_clean_pre_cal = data_clean_pre_cal.resample("1 min").mean().copy()
+        data_clean_zero = data_clean_zero.resample("1 min").mean().copy()
+        
+        data_cleano = data_cleano.reset_index('Date_time')
+        data_clean_ambient = data_clean_ambient.reset_index('Date_time')
+        data_clean_cal = data_clean_cal.reset_index('Date_time')
+        data_clean_pre_cal = data_clean_pre_cal.reset_index('Date_time')
+        data_clean_zero = data_clean_zero.reset_index('Date_time')
+        
+        fig, g = plt.subplots(1,1)
+        g.plot(data_cleano["Date_time"], data_cleano["sig_diff_cts_ref_norm"], 'g', alpha=0.6, label = "Original data")
+        g.plot(data_clean_ambient["Date_time"], data_clean_ambient["sig_diff_cts_ref_norm"], color="orange", label="Ambient", alpha = 0.5)
+        g.plot(data_clean_zero["Date_time"], data_clean_zero["sig_diff_cts_ref_norm"], color="deeppink", label="Zero", alpha = 0.5)
+        g.plot(data_clean_cal["Date_time"], data_clean_cal["sig_diff_cts_ref_norm"], color= "r", label="Cal", alpha = 0.5)
+        g.plot(data_clean_pre_cal["Date_time"], data_clean_pre_cal["sig_diff_cts_ref_norm"], color= "gold", label="Pre-Cal")
+        g.set_ylabel("Trimmed data just sectioned into the tasks")
+        
+        
+        
+    print("I have set the flags!")
+    return data
+    
+def zero_correct(data, channels, removal_zero, plot=False):
     """
-    Applies a single, constant average zero-offset correction to the
-    reference-normalized count data for specified channels.
+    Values needed for the zero correct by avgs!
+  #for the ambient part of the cruise!
+        ("2025-06-18 17:00:00", "2025-06-20 15:00:00"),
+        ("2025-06-20 15:00:00", "2025-06-20 22:00:00"),
+        ("2025-06-20 22:00:00", "2025-06-22 08:00:00"),#08:00:00
+        #("2025-06-21 15:00:00", "2025-06-22 07:20:00"),
+        ("2025-06-22 08:00:00", "2025-06-23 09:49:00"),
+        ("2025-06-23 09:49:00", "2025-06-23 17:51:00"),
+        ("2025-06-23 17:51:00", "2025-06-24 08:00:00"),
+        ("2025-06-24 08:00:00", "2025-06-24 15:15:00"),
+        ("2025-06-24 15:15:00", "2025-06-25 08:00:00"),
+        ("2025-06-25 08:00:00", "2025-06-25 16:00:00")]
+
     
-    The correction value is calculated by:
-    1. Identifying all data periods where the 'Task' is 4 (zeroing task) and the
-       'Peak_find_flag' is 0 (valid data).
-    2. Grouping these zero periods sequentially.
-    3. Calculating the mean of the reference-normalized counts for each individual
-       zero period.
-    4. Applying a 3-sigma (3 * standard deviation) spike filter to exclude
-       outlying zero period means.
-    5. Calculating the final grand average of the filtered zero means.
-    6. Subtracting this constant grand average from the entire data column.
-    
-    Parameters
-    ----------
-    data : pandas.DataFrame
-        The input DataFrame containing the processed, reference-normalized count
-        data and the 'Task' and 'Peak_find_flag' columns.
-    channels : list of str
-        A list of channel names (e.g., ['H2O', 'O2']) to which the zero correction
-        will be applied.
-    plot : bool, optional
-        If True, generates diagnostic plots: an errorbar plot of the zero period
-        means over time, and a histogram of the zero means. Default is False.
-    
-    Returns
-    -------
-    pandas.DataFrame
-        A copy of the input DataFrame with two new columns for each channel:
-        - '{channel}_zero_offset': The constant zero correction value applied.
-        - '{channel}_diff_cts_ref_norm_zero_corr': The final zero-corrected data.
-    
-    Notes
-    -----
-    - For the 'sig_B' channel (if present in `channels`), an additional filter
-      is applied, setting data to NaN if either 'BLC_0_flag' or 'BLC_1_flag'
-      is not equal to 1.0 during the zeroing task.
-    - The zero correction is **time-independent** and uses the overall mean of
-      the filtered zero-period averages.
     """
-    
     print('\nCalculating zero correction')
     # use a mask to select all of the zero data associated with task 4
     # set the index to Date_time for averaging later
@@ -2040,35 +2401,200 @@ def zero_correct_average(data, channels, removal_zero, plot=False):
             & (zero_stats[f'{column_name}_mean'] < upper_limit))
         
         zero_stats = zero_stats[spike_mask]
-        
         zero_stats['zero_midpoint'] =pd.to_datetime(zero_stats['zero_midpoint'])
         removal_zero = removal_zero
         
         #09/02/2026: to remove the spikes from the 02-06/06/2025 DY195 data, will need to remove this 
+        removal_zero = removal_zero
         if removal_zero is True:
-            start_date = pd.to_datetime('2025-06-05 08:55:00')
-            end_date   = pd.to_datetime('2025-06-05 12:00:00')
-            start_date_x = pd.to_datetime('2025-06-06 08:59:00')
-            end_date_x   = pd.to_datetime('2025-06-06 09:02:00')
+            
+            start_date = '2025-06-21 20:00:00'
+            end_date = '2025-06-23 06:30:00'
+
             mask = (
-                ((zero_stats['zero_midpoint'] >= start_date) & (zero_stats['zero_midpoint'] <= end_date))|
-                    ((zero_stats['zero_midpoint'] >= start_date_x) & (zero_stats['zero_midpoint'] <= end_date_x))
+                ((zero_stats['zero_midpoint'] >= start_date) & (zero_stats['zero_midpoint'] <= end_date))
                     )
+
             zero_stats=zero_stats[~mask]
         
         mean_zero_spikes_removed = zero_stats[f'{column_name}_mean'].mean()
+        print(f'\n{channel}:\nmean zero before spike removal = {mean_zero}'
+              f'\nmean zero after spike removal = {mean_zero_spikes_removed}')
+        # Define the filename (optionally include the channel name to avoid overwriting)
+        stats_csv_name = f"{channel}_zero_statistics.csv"
         
-        #stats_csv_name = "mean_zero_spikes_removed.csv"
-        #mean_zero_spikes_removed.to_csv(stats_csv_name, index=False)
+        # Save the zero_stats DataFrame to CSV
+        zero_stats.to_csv(stats_csv_name, index=False)
         
-        #print(f"Saved {len(zero_stats)} individual zero points for {channel} to {stats_csv_name}")
-   
+        print(f"Successfully saved stats for {channel} to {stats_csv_name}")
+        """   
         mean_correction = mean_zero_spikes_removed # The overall mean after spike removal
         correction_values = np.full(len(data), mean_correction)
         
         data[f'{channel}_zero_offset'] = correction_values
         data[f'{channel}_diff_cts_ref_norm_zero_corr'] = data[column_name] - correction_values
         print(f'zero correction applied to {channel}')
+        """
+        final_corrected_data = data.copy()
+        final_corrected_data[f'{channel}_zero_offset'] = np.nan
+        final_corrected_data[f'{channel}_diff_cts_ref_norm_zero_corr'] = np.nan
+        ##############################################################
+                        #AVERAGE OVER THESE PERIODS!
+        ##############################################################
+        observation_windows =[("2025-06-02 00:00:00", "2025-06-02 18:50:00"),
+        ("2025-06-02 18:50:00", "2025-06-03 15:50:00"),
+        ("2025-06-03 15:50:00", "2025-06-04 08:00:00"),
+        ("2025-06-04 08:00:00", "2025-06-04 18:30:00"),
+        ("2025-06-04 18:30:00", "2025-06-05 09:30:00"),
+        ("2025-06-05 09:30:00", "2025-06-06 12:00:00"),
+        ("2025-06-06 15:30:00", "2025-06-07 12:30:00"),#("2025-06-07 08:00:00", "2025-06-09 11:35:00")
+        ("2025-06-07 12:30:00", "2025-06-08 09:00:00"),
+        ("2025-06-08 09:00:00", "2025-06-09 12:35:00"),
+        ("2025-06-09 12:35:00", "2025-06-09 14:40:00"),
+        ("2025-06-09 14:40:00", "2025-06-12 08:00:00"),
+        ("2025-06-12 08:00:00", "2025-06-16 20:00:00"),
+        ("2025-06-16 20:00:00", "2025-06-18 08:00:00"),
+        ("2025-06-18 08:00:00", "2025-06-18 17:48:16"),
+        ("2025-06-18 17:00:00", "2025-06-20 15:00:00"),
+        ("2025-06-20 15:00:00", "2025-06-20 22:00:00"),
+        ("2025-06-20 22:00:00", "2025-06-22 08:00:00"),#08:00:00
+        #("2025-06-21 15:00:00", "2025-06-22 07:20:00"),
+        ("2025-06-22 08:00:00", "2025-06-23 09:49:00"),
+        #("2025-06-23 09:49:00", "2025-06-23 17:51:00"),
+        #("2025-06-23 17:51:00", "2025-06-24 08:00:00"),
+        ("2025-06-24 08:00:00", "2025-06-24 15:15:00"),
+        ("2025-06-24 15:15:00", "2025-06-25 08:00:00"),
+        ("2025-06-25 08:00:00", "2025-06-25 16:00:00"),
+        ("2025-03-06 11:30:00", "2025-03-06 19:30:00"),
+        ("2025-03-06 19:30:00", "2025-03-07 10:40:00"),
+        ("2025-03-07 10:50:00", "2025-03-08 11:30:00"),
+        ("2025-03-08 11:30:00", "2025-03-09 09:45:00"),
+        ("2025-03-09 09:45:00", "2025-03-09 12:30:00"),
+        ("2025-03-09 12:30:00", "2025-03-10 01:15:00"),
+        #("2025-03-10 01:15:00", "2025-03-10 09:30:00"),
+        ("2025-03-10 09:30:00", "2025-03-11 08:40:00")
+        ]
+        
+        
+        
+        
+        
+        corrected_segments = []
+    
+        for start, end in observation_windows:
+            mask_window = (final_corrected_data.index >= start) & (final_corrected_data.index <= end)
+            z_mask = (zero_stats['zero_midpoint'] >= start) & (zero_stats['zero_midpoint'] <= end)
+            local_mean = zero_stats.loc[z_mask, f'{column_name}_mean'].mean()
+            print(start, end, local_mean)
+            if not pd.isna(local_mean):
+                final_corrected_data.loc[mask_window, f'{channel}_zero_offset'] = local_mean
+       
+        twenty_third_window = [('2025-06-23 09:49:00', '2025-06-23 17:51:00')]
+        
+        for start,end in twenty_third_window:
+            mask_window = (final_corrected_data.index >= start) & (final_corrected_data.index <= end)
+            #z_mask = (zero_stats['zero_midpoint'] >= start) & (zero_stats['zero_midpoint'] <= end)
+            mean_value = -0.0013064842679061512
+            final_corrected_data.loc[mask_window, f'{channel}_zero_offset' ] = mean_value
+      
+       
+        # --- ROBUST DUAL-STREAM LOOKUP ---
+        odd_windows = [("2025-07-23 17:51:00", "2025-07-24 08:00:00")]
+        
+        for start, end in odd_windows:
+            # 1. Slice data
+            mask_10hz = (final_corrected_data.index >= start) & (final_corrected_data.index <= end)
+            mask_stats = (zero_stats['zero_midpoint'] >= start) & (zero_stats['zero_midpoint'] <= end)
+            
+            current_10hz = final_corrected_data[mask_10hz].copy()
+            # Ensure stats are datetime and SORTED (merge_asof requirement)
+            current_stats = zero_stats[mask_stats].copy()
+            current_stats['zero_midpoint'] = pd.to_datetime(current_stats['zero_midpoint'])
+            current_stats = current_stats.sort_values('zero_midpoint')
+        
+            if not current_stats.empty:
+                # 2. Split into High and Low
+                high_stats = current_stats[current_stats[f'{column_name}_mean'] >= -0.00015].copy()
+                low_stats = current_stats[current_stats[f'{column_name}_mean'] < -0.00015].copy()
+        
+                # 3. The Lookup (Using the index of current_10hz directly)
+                # We use 'direction=nearest' to find the closest zero within 22.5 mins
+                
+                # HIGH LOOKUP
+                if not high_stats.empty:
+                    matched_high = pd.merge_asof(
+                        current_10hz.index.to_frame(name='ts'),
+                        high_stats[['zero_midpoint', f'{column_name}_mean']],
+                        left_on='ts',
+                        right_on='zero_midpoint',
+                        direction='nearest',
+                        tolerance=pd.Timedelta(minutes=45)
+                    )
+                    final_corrected_data.loc[mask_10hz, f'{channel}_high_offset'] = matched_high[f'{column_name}_mean'].values
+        
+                # LOW LOOKUP
+                if not low_stats.empty:
+                    matched_low = pd.merge_asof(
+                        current_10hz.index.to_frame(name='ts'),
+                        low_stats[['zero_midpoint', f'{column_name}_mean']],
+                        left_on='ts',
+                        right_on='zero_midpoint',
+                        direction='nearest',
+                        tolerance=pd.Timedelta(minutes=45)
+                    )
+                    final_corrected_data.loc[mask_10hz, f'{channel}_low_offset'] = matched_low[f'{column_name}_mean'].values
+         ##############################################################
+                         #INTERP OVER THESE PERIODS!
+         ##############################################################
+        interp_windows = [("2025-06-23 17:51:00", "2025-06-24 08:00:00"), ("2025-06-06 19:15:00", "2025-06-07 08:00:00"),
+                           ("2025-06-09 18:00:00", "2025-06-10 10:00:00"),
+                          ("2025-06-12 10:00:00", "2025-06-13 00:00:00"), ("2025-06-14 03:00:00", "2025-06-14 07:10:00"),
+                          ("2025-06-14 19:00:00", "2025-06-15 08:00:00"), ("2025-06-02 18:50:00", "2025-06-03 15:50:00"),
+                          ("2025-06-04 18:30:00", "2025-06-05 09:30:00"), ("2025-06-24 15:15:00", "2025-06-25 08:00:00"),
+                          ("2025-03-05 10:45:00", "2025-03-06 11:30:00"), ("2025-03-10 01:15:00", "2025-03-10 09:30:00")]
+            #('2025-06-18 08:00:00', '2025-06-18 17:48:16')]
+        for start, end in interp_windows:
+            mask_window = (final_corrected_data.index >= start) & (final_corrected_data.index <= end)
+            if mask_window.any():
+                from scipy.interpolate import make_interp_spline
+                
+                # Use ALL available zero points to build the curve
+                x_pts = zero_stats['zero_midpoint'].values.astype(np.int64)
+                y_pts = zero_stats[f'{column_name}_mean'].values
+                
+                # k=1 is linear interpolation (safe). Use k=3 for smooth curves.
+                spline = make_interp_spline(x_pts, y_pts, k=2)
+                
+                # Calculate values for every timestamp in the window
+                target_x = final_corrected_data.loc[mask_window].index.values.astype(np.int64)
+                final_corrected_data.loc[mask_window, f'{channel}_zero_offset'] = spline(target_x)
+
+        # FINAL CALCULATION for this channel
+        final_corrected_data[f'{channel}_diff_cts_ref_norm_zero_corr'] = (
+            final_corrected_data[column_name] - final_corrected_data[f'{channel}_zero_offset']
+        )
+
+        #print(f"Total rows in output: {len(data)}")
+        #print("--- DATA AUDIT ---")
+        #print(f"Total Rows: {len(final_corrected_data)}")
+        #print(f"Index Start: {final_corrected_data.index.min()}")
+        #print(f"Index End:   {final_corrected_data.index.max()}")
+        #print(f"Rows after June 21st: {len(final_corrected_data[final_corrected_data.index > '2025-06-21'])}")
+        #print("--- Column Names ---")
+        #print(final_corrected_data.columns.tolist())
+        #print("\n--- Data Types and Non-Null Counts ---")
+        #print(final_corrected_data.info())
+        #print("\n--- First 5 Rows ---")
+        #print(final_corrected_data.head())
+        #print("\n--- Last 5 Rows ---")
+        #print(final_corrected_data.tail())
+        #print("\n--- Snapshot of June 24th ---")
+        # This looks at a 10-row slice from the 24th
+        #print(final_corrected_data.loc['2025-06-24 12:00:00':'2025-06-24 12:00:01'])
+                
+        
+        
+        
         
         if plot:
             
@@ -2084,17 +2610,19 @@ def zero_correct_average(data, channels, removal_zero, plot=False):
                              , label='zero measurement means, +/- 1std'
                              )
             #ax.plot(cts_data_zero['Date_time'], cts_data_zero[column_name], label='raw zero data')
-            ax[0].plot(data['Date_time'], data[f'{channel}_zero_offset'], label='zero correction')
+            ax[0].plot(final_corrected_data['Date_time'], final_corrected_data[f'{channel}_zero_offset'], label='zero correction')
             ax[0].set_xlabel('Date_time')
             ax[0].set_ylabel(column_name)
             ax[0].set_title(f'{channel} zero correction')
-            ax[0].legend()
+            ax[0].legend(loc = "upper left")
             
             ax[1].hist(zero_stats[f'{column_name}_mean'], bins=50)
             ax[1].set_xlabel(column_name)
             
             plt.show()
-    return data
+    return final_corrected_data.reset_index(drop=True)
+
+
 
 def zero_correct_imls(data, channels, h_seconds=2400, plot=True):
     """
@@ -2572,9 +3100,407 @@ def intercepts_average_interpolated_with_zero_corr(data_dir, data, channels, R2_
            
     return cts_data_intercepts
 
+def zero_correct_test(data, channels, removal_zero, plot=False):
+    """
+    Values needed for the zero correct by avgs!
+  #for the ambient part of the cruise!
+        ("2025-06-18 17:00:00", "2025-06-20 15:00:00"),
+        ("2025-06-20 15:00:00", "2025-06-20 22:00:00"),
+        ("2025-06-20 22:00:00", "2025-06-22 08:00:00"),#08:00:00
+        #("2025-06-21 15:00:00", "2025-06-22 07:20:00"),
+        ("2025-06-22 08:00:00", "2025-06-23 09:49:00"),
+        ("2025-06-23 09:49:00", "2025-06-23 17:51:00"),
+        ("2025-06-23 17:51:00", "2025-06-24 08:00:00"),
+        ("2025-06-24 08:00:00", "2025-06-24 15:15:00"),
+        ("2025-06-24 15:15:00", "2025-06-25 08:00:00"),
+        ("2025-06-25 08:00:00", "2025-06-25 16:00:00")]
 
-def zero_correct_interpolated_quad(data, channels, plot=False):
     
+    """
+    print('\nCalculating zero correction')
+    # use a mask to select all of the zero data associated with task 4
+    # set the index to Date_time for averaging later
+    cts_data_zero = data.copy()
+    start_of_zero = (cts_data_zero['Task'] == 4) & (cts_data_zero['Task'].shift(1) != 4)
+    cts_data_zero['zero_number'] = start_of_zero.cumsum()
+    cts_data_zero = cts_data_zero[(cts_data_zero['Task']==4) & (cts_data_zero['Peak_find_flag']==0)]
+    grouped_zeros = cts_data_zero.groupby('zero_number')
+    
+    if 'sig_B' in channels:
+        
+        cts_data_zero['sig_B_diff_cts_ref_norm'] = np.where(
+            (cts_data_zero['BLC_0_flag'] == 1.0) & (cts_data_zero['BLC_1_flag'] == 1.0)
+            , cts_data_zero['sig_B_diff_cts_ref_norm']
+            , np.nan
+            )
+    
+    for channel in channels:
+
+        column_name = f'{channel}_diff_cts_ref_norm'
+        
+        zero_stats = grouped_zeros.agg({
+            column_name: ['mean', 'std', 'count'],
+            'Date_time': 'mean'
+            }).dropna()
+        
+        # Flattening the MultiIndex columns
+        zero_stats.columns = ['_'.join(col).strip() for col in zero_stats.columns.values]
+        
+        # Renaming for clarity
+        zero_stats = zero_stats.rename(columns={
+            'Date_time_mean': 'zero_midpoint'
+        })
+        
+        mean_zero = zero_stats[f'{column_name}_mean'].mean()
+        std_zero = zero_stats[f'{column_name}_mean'].std()
+        lower_limit = mean_zero - 3*std_zero
+        upper_limit = mean_zero + 3*std_zero
+        spike_mask = ((zero_stats[f'{column_name}_mean'] > lower_limit)
+            & (zero_stats[f'{column_name}_mean'] < upper_limit))
+        
+        zero_stats = zero_stats[spike_mask]
+        zero_stats['zero_midpoint'] =pd.to_datetime(zero_stats['zero_midpoint'])
+        removal_zero = removal_zero
+        
+        #09/02/2026: to remove the spikes from the 02-06/06/2025 DY195 data, will need to remove this 
+        removal_zero = removal_zero
+        if removal_zero is True:
+            
+            start_date = '2025-06-05 08:55:00'
+            end_date = '2025-06-05 12:00:00'
+            
+            start_date_x = '2025-06-06 08:59:00'
+            end_date_x = '2025-06-06 09:02:00'
+            
+            start_date_z = '2025-06-09 12:00:00'
+            end_date_z = '2025-06-09 15:20:00'
+            
+            start_date_t = '2025-06-11 20:15:00'
+            end_date_t = '2025-06-11 20:20:00'
+            
+            start_date_w = '2025-06-13 09:10:00'
+            end_date_w = '2025-06-13 09:15:00'
+            
+            start_date_q = '2025-06-11 19:15:00'
+            end_date_q = '2025-06-11 20:25:00'
+            
+            start_date_a = '2025-06-16 18:33:00'
+            end_date_a = '2025-06-16 18:34:00'
+            
+            start_date_b = '2025-06-20 21:52:00'
+            end_date_b = '2025-06-20 22:02:00'
+            
+            start_date_c = '2025-06-21 12:00:00'
+            end_date_c = '2025-06-21 14:00:00'
+            
+            start_date_d = '2025-06-24 09:00:00'
+            end_date_d = '2025-06-24 09:15:00'
+            
+            start_date_e = '2025-06-24 15:00:00'
+            end_date_e = '2025-06-24 18:00:00'
+            
+            mask = (
+                ((zero_stats['zero_midpoint'] >= start_date) & (zero_stats['zero_midpoint'] <= end_date))|
+                    ((zero_stats['zero_midpoint'] >= start_date_x) & (zero_stats['zero_midpoint'] <= end_date_x))|
+                    ((zero_stats['zero_midpoint'] >= start_date_t) & (zero_stats['zero_midpoint'] <= end_date_t))|
+                    ((zero_stats['zero_midpoint'] >= start_date_w) & (zero_stats['zero_midpoint'] <= end_date_w))|
+                    ((zero_stats['zero_midpoint'] >= start_date_q) & (zero_stats['zero_midpoint'] <= end_date_q))|
+                    ((zero_stats['zero_midpoint'] >= start_date_a) & (zero_stats['zero_midpoint'] <= end_date_a))|
+                    ((zero_stats['zero_midpoint'] >= start_date_z) & (zero_stats['zero_midpoint'] <= end_date_z))|
+                    ((zero_stats['zero_midpoint'] >= start_date_w) & (zero_stats['zero_midpoint'] <= end_date_b))|
+                    ((zero_stats['zero_midpoint'] >= start_date_q) & (zero_stats['zero_midpoint'] <= end_date_c))|
+                    ((zero_stats['zero_midpoint'] >= start_date_a) & (zero_stats['zero_midpoint'] <= end_date_d))|
+                    ((zero_stats['zero_midpoint'] >= start_date_z) & (zero_stats['zero_midpoint'] <= end_date_e))
+                    )
+            mask = (
+                ((zero_stats['zero_midpoint'] >= start_date) & (zero_stats['zero_midpoint'] <= end_date))|
+                    ((zero_stats['zero_midpoint'] >= start_date_x) & (zero_stats['zero_midpoint'] <= end_date_x))
+                    )
+            zero_stats=zero_stats[~mask]
+        
+        mean_zero_spikes_removed = zero_stats[f'{column_name}_mean'].mean()
+        print(f'\n{channel}:\nmean zero before spike removal = {mean_zero}'
+              f'\nmean zero after spike removal = {mean_zero_spikes_removed}')
+        # Define the filename (optionally include the channel name to avoid overwriting)
+        stats_csv_name = f"{channel}_zero_statistics.csv"
+        
+        # Save the zero_stats DataFrame to CSV
+        zero_stats.to_csv(stats_csv_name, index=False)
+        
+        print(f"Successfully saved stats for {channel} to {stats_csv_name}")
+        """   
+        mean_correction = mean_zero_spikes_removed # The overall mean after spike removal
+        correction_values = np.full(len(data), mean_correction)
+        
+        data[f'{channel}_zero_offset'] = correction_values
+        data[f'{channel}_diff_cts_ref_norm_zero_corr'] = data[column_name] - correction_values
+        print(f'zero correction applied to {channel}')
+        """
+        final_corrected_data = data.copy()
+        final_corrected_data[f'{channel}_zero_offset'] = np.nan
+        final_corrected_data[f'{channel}_diff_cts_ref_norm_zero_corr'] = np.nan
+        
+        observation_windows =[("2025-06-06 19:15:00", "2025-06-09 11:35:00"),
+        ("2025-06-09 11:35:00", "2025-06-09 15:00:00"),
+        ("2025-06-09 15:00:00", "2025-06-12 08:00:00"),
+        ("2025-06-12 08:00:00", "2025-06-16 20:00:00"),
+        ("2025-06-16 20:00:00", "2025-06-18 08:00:00"),
+        ("2025-06-18 08:00:00", "2025-06-18 17:48:16")]
+        corrected_segments = []
+    
+        for start, end in observation_windows:
+            # 1. Extract the data for this specific period
+            # Use .copy() to avoid SettingWithCopy warnings
+            mask_window = (final_corrected_data.index >= pd.to_datetime(start)) & (final_corrected_data.index <= pd.to_datetime(end))
+            if not final_corrected_data[mask_window].empty:
+                mask = (zero_stats['zero_midpoint'] >= start) & (zero_stats['zero_midpoint'] <= end)
+                period_zero_mean = zero_stats.loc[mask, f'{column_name}_mean'].mean()
+            # Fallback: if no zero reading in this window, maybe use the global mean?
+            rows_found = mask_window.sum()
+            if rows_found > 0:
+                # Check for zero stats in this window
+                mask_stats = (zero_stats['zero_midpoint'] >= start) & (zero_stats['zero_midpoint'] <= end)
+                period_zero_mean = zero_stats.loc[mask_stats, f'{column_name}_mean'].mean()
+                
+                # Fallback logic
+                if pd.isna(period_zero_mean):
+                    print(f"  > Window {start}: No local zero found. Using global mean.")
+                    period_zero_mean = mean_zero_spikes_removed
+                else:
+                    print(f"  > Window {start}: Found local zero ({period_zero_mean:.2f})")
+            # 3. Apply the correction
+            # 5. Apply the correction ONLY to this window
+                final_corrected_data.loc[mask_window, f'{channel}_zero_offset'] = period_zero_mean
+                final_corrected_data.loc[mask_window, f'{channel}_diff_cts_ref_norm_zero_corr'] = \
+                final_corrected_data.loc[mask_window, column_name] - period_zero_mean
+            else:
+                print(f"  ! Window {start}: NO DATA found in main dataframe for this range.")
+            print(f"Processing complete. Data range: {final_corrected_data.index.min()} to {final_corrected_data.index.max()}")
+        
+        odd_zero_step_window = []
+        
+        for start, end in odd_zero_step_window:
+           mask_window = (final_corrected_data.index >= pd.to_datetime(start)) & (final_corrected_data.index <= pd.to_datetime(end))
+           if not final_corrected_data[mask_window].empty:
+               mask = (zero_stats['zero_midpoint'] >= start) & (zero_stats['zero_midpoint'] <= end)
+               period_zero_mean = zero_stats.loc[mask, f'{column_name}_mean'].mean() 
+           rows_found = mask_window.sum()
+           if rows_found > 0:
+                # Check for zero stats in this window
+                mask_stats = (zero_stats['zero_midpoint'] >= start) & (zero_stats['zero_midpoint'] <= end)
+                current_window = zero_stats[mask_stats]
+                if not current_window.empty:
+                    # 1. Create the high mask based on the already-filtered window
+                    high_mask = current_window[f'{column_name}_mean'] >= -0.00015
+                    
+                    if high_mask.any():
+                        # 2. Use high_mask on current_window, NOT mask_stats on current_window
+                        period_zero_mean = current_window.loc[high_mask, f'{column_name}_mean'].mean()
+                    else:
+                        # 3. Fallback if no points meet the "high" criteria in this specific bit
+                        period_zero_mean = current_window[f'{column_name}_mean'].mean()
+                
+                final_corrected_data.loc[mask_window, f'{channel}_zero_offset'] = period_zero_mean
+                final_corrected_data.loc[mask_window, f'{channel}_diff_cts_ref_norm_zero_corr'] = \
+                final_corrected_data.loc[mask_window, column_name] - period_zero_mean
+        else:
+            print(f"  ! Window {start}: NO DATA found in main dataframe for this range.")
+        print(f"Processing complete. Data range: {final_corrected_data.index.min()} to {final_corrected_data.index.max()}")
+        
+        
+        
+        interpolated_windows = [('2025-06-18 08:00:00', '2025-06-18 17:48:16')]
+        
+        for start, end in interpolated_windows:
+            # 1. Extract the data for this specific period
+            # Use .copy() to avoid SettingWithCopy warnings
+            mask_window = (final_corrected_data.index >= pd.to_datetime(start)) & (final_corrected_data.index <= pd.to_datetime(end))
+            if not final_corrected_data[mask_window].empty:
+                mask = (zero_stats['zero_midpoint'] >= start) & (zero_stats['zero_midpoint'] <= end)
+                period_zero_mean = zero_stats.loc[mask, f'{column_name}_mean'].mean()
+            # Fallback: if no zero reading in this window, maybe use the global mean?
+            rows_found = mask_window.sum()
+            if rows_found > 0:
+                # Check for zero stats in this window
+                zero_stats['zero_midpoint'] =pd.to_datetime(zero_stats['zero_midpoint'])
+                x_sorted = zero_stats['zero_midpoint'].values
+                y_sorted=zero_stats['sig_diff_cts_ref_norm_mean'].values
+                
+                x_numeric = x_sorted.astype(np.int64)
+                from scipy.interpolate import make_interp_spline
+                # 1. Create Spline mapping
+                quadratic_spline = make_interp_spline(x_numeric, y_sorted, k=1)
+        
+                # 2. Generate numeric grid
+                x_grid_numeric = np.linspace(x_numeric.min(), x_numeric.max(), 12000)
+                y_quadratic = quadratic_spline(x_grid_numeric)
+                
+                # 3. Convert grid back to datetime for plotting and merging
+                x_grid_datetime = pd.to_datetime(x_grid_numeric)
+                
+                zero_lookup = pd.DataFrame({
+                    'Date_time': x_grid_datetime,
+                    'dynamic_zero_factor': y_quadratic
+                }).sort_values('Date_time')
+                
+                if 'dynamic_zero_factor' in data.columns:
+                    data=data.drop(columns = ['dynamic_zero_factor'])
+                # Check if Date_time is the index name
+                if data.index.name == 'Date_time':
+                    # If it is, just reset it and drop the index level to avoid duplicates
+                    data = data.reset_index(drop=True) 
+                elif 'Date_time' not in data.columns:
+                    # If it's not in columns at all, bring it out
+                    data = data.reset_index()
+                
+                data = data.sort_values(by="Date_time")
+                # Instead of: data = cts_data_zero.sort_values(by="Date_time")
+                #data = cts_data_zero.reset_index(drop=True).sort_values(by="Date_time")
+                data=pd.merge_asof(data, zero_lookup, 
+                                            on="Date_time", direction = "nearest")
+                
+                data = data.rename(columns={'dynamic_zero_factor': f'{channel}_zero_offset'})
+                
+                offset_column = data[f'{channel}_zero_offset']
+                
+                # If it's a DataFrame (2 columns), take the first one; otherwise take the Series
+                actual_offset = offset_column.iloc[:, 0].values if hasattr(offset_column, "ndim") and offset_column.ndim > 1 else offset_column.values
+                
+                data[f'{channel}_diff_cts_ref_norm_zero_corr'] = (
+                    data[column_name].values - actual_offset
+                )
+                print(f'Interpolated zero correction applied to {channel}')
+            
+        # 4. Combine all periods back into one dataframe for this channel
+        
+        data = final_corrected_data
+        print(f"Total rows in output: {len(data)}")
+        print("--- DATA AUDIT ---")
+        print(f"Total Rows: {len(final_corrected_data)}")
+        print(f"Index Start: {final_corrected_data.index.min()}")
+        print(f"Index End:   {final_corrected_data.index.max()}")
+        print(f"Rows after June 21st: {len(final_corrected_data[final_corrected_data.index > '2025-06-21'])}")
+        print("--- Column Names ---")
+        print(final_corrected_data.columns.tolist())
+        print("\n--- Data Types and Non-Null Counts ---")
+        print(final_corrected_data.info())
+        print("\n--- First 5 Rows ---")
+        print(final_corrected_data.head())
+        print("\n--- Last 5 Rows ---")
+        print(final_corrected_data.tail())
+        print("\n--- Snapshot of June 24th ---")
+        # This looks at a 10-row slice from the 24th
+        print(final_corrected_data.loc['2025-06-24 12:00:00':'2025-06-24 12:00:01'])
+                
+        
+        
+        
+        
+        if plot:
+            
+            fig, ax = plt.subplots( 2, 1, figsize=(12, 8))
+            
+            ax[0].errorbar(zero_stats['zero_midpoint']
+                             , zero_stats[f'{column_name}_mean']
+                             , yerr=zero_stats[f'{column_name}_std']
+                             , linestyle=''
+                             , marker='o'
+                             , markersize=2
+                             , capsize=2
+                             , label='zero measurement means, +/- 1std'
+                             )
+            #ax.plot(cts_data_zero['Date_time'], cts_data_zero[column_name], label='raw zero data')
+            ax[0].plot(final_corrected_data['Date_time'], final_corrected_data[f'{channel}_zero_offset'], label='zero correction')
+            ax[0].set_xlabel('Date_time')
+            ax[0].set_ylabel(column_name)
+            ax[0].set_title(f'{channel} zero correction')
+            ax[0].legend()
+            
+            ax[1].hist(zero_stats[f'{column_name}_mean'], bins=50)
+            ax[1].set_xlabel(column_name)
+            
+            plt.show()
+    return data
+
+def cell_pressure_adjusted(cts_data):
+    #need to account for the 2hour deviations within the DY195 data.
+    import numpy as np
+    from scipy.fft import rfft, rfftfreq
+    
+    from scipy import signal
+    output_df = cts_data.copy()
+    
+    cts_data["Date_time"] = pd.to_datetime(cts_data["Date_time"])
+    output_df["Date_time"] = pd.to_datetime(output_df["Date_time"])
+    ch_list = ['ref_diff_cts_norm']#]#, 'sig_diff_cts_norm']
+    sr = 10  # Your sampling rate
+    cutoff_hz = 1 / 5400 
+    
+    t_hours = cts_data["Date_time"].values
+    # Use a 4th order Butterworth for a sharp 'cutoff'
+    sos = signal.butter(4, cutoff_hz, 'hp', fs=sr, output='sos')
+    for channel in ch_list:  
+        mask = cts_data[channel].notna()
+    #ref_diff = cts_data.loc[mask, 'ref_diff_cts_norm'].values
+    #sig_diff = cts_data.loc[mask, 'sig_diff_cts_norm'].values
+        data_to_filter = cts_data.loc[mask, channel].values
+        
+        if len(data_to_filter) > 0:
+            # 3. Apply the High-Pass Filter
+            # This removes the slow 2-hour deviations
+            filtered_data = signal.sosfiltfilt(sos, data_to_filter)
+            
+            # 4. Re-Trend and Save
+            # We add back the mean to maintain the baseline level
+            baseline = np.mean(data_to_filter)
+            output_df.loc[mask, channel] = filtered_data + baseline
+    #uses 4 so that it deffo cuts off the 2.24 hour featrues. 1 would be quite a gentle trim but we need to be sharp.
+    #need to use the double and the zero phase so that it runs i forward and then backwards aswell andit cancels out the time shift in the data.
+    # --- Step 2: Apply the Filter ---
+    # We use the 'pressure' array (which already has NaNs removed)
+    # 'sosfiltfilt' prevents the 'startup spike' and keeps timing perfect
+    #filtered_dev = signal.sosfiltfilt(sos, ref_diff, sig_diff)
+    #simply take the mean of the pressure and add back in the 10Hz over the top of the data
+    # --- Step 3: Re-Trend (Add the 604psi baseline back) ---
+   #output_df.loc[mask, 'ref_diff_cts_norm', 'sig_diff_cts_norm'] = filtered_dev + np.mean(pressure)
+    
+    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(15, 10))
+    
+    # Top Plot: The Original messy data
+    ax1.plot(cts_data["Date_time"], cts_data["ref_diff_cts_norm"], color='gray', label='Original')
+    ax1.set_title("Original Cell Pressure")
+    ax1.set_ylabel("Pressure (mbar)")
+    ax1.legend()
+    
+    # Bottom Plot: The Cleaned data (10Hz preserved, 2.24hr removed)
+    ax2.plot(output_df["Date_time"],output_df["ref_diff_cts_norm"], color='blue', linewidth=0.5, label='Cleaned (High-Freq Kept)')
+    ax2.set_title("2.24hr deviation removed from data")
+    ax2.set_ylabel("Pressure (mbar)")
+    ax2.set_xlabel("Time (Hours)")
+    
+    # Optional: Zoom in on Y to see the 10Hz noise clearly
+    # ax2.set_ylim(603.5, 605.5) 
+    
+    plt.tight_layout()
+    plt.show()
+    plt.savefig("./ detrending of the data and the new trend.png")
+    # Instead of: data['Date_time'] = pd.to_datetime(data['Date_time'])
+    if 'Date_time' in output_df.columns:
+        output_df['Date_time'] = pd.to_datetime(output_df['Date_time'])
+    elif output_df.index.name == 'Date_time':
+        output_df.index = pd.to_datetime(output_df.index)
+    else:
+        print("Available columns:", output_df.columns)
+        raise KeyError("Date_time column not found!")
+    return output_df
+
+
+
+
+def zero_correct_interpolated_quad(data, channels, removal_zero, plot=False):
+    """
+    Zero correcting the data and doing it as an interpolation.
+    """
     print('\nCalculating zero correction')
     
     # use a mask to select all of the zero data associated with task 4
@@ -2614,6 +3540,22 @@ def zero_correct_interpolated_quad(data, channels, plot=False):
         #from here we need to implement in the interpolation!
         #headers = ['sig_diff_cts_ref_norm_mean', 'sig_diff_cts_ref_norm_std',
                #'sig_diff_cts_ref_norm_count', 'zero_midpoint']
+        #09/02/2026 implementation to see if this works
+        removal_zero = removal_zero
+        if removal_zero is True:
+            """
+            start_date = '2025-06-05 08:55:00'
+            end_date = '2025-06-05 12:00:00'
+            start_date_x = '2025-06-06 08:59:00'
+            end_date_x = '2025-06-06 09:02:00'
+            """
+            start_date = '2025-06-23 08:00:00'
+            end_date = '2025-06-23 17:01:00'
+            mask = (
+                ((zero_stats['zero_midpoint'] >= start_date) & (zero_stats['zero_midpoint'] <= end_date))#|
+                    #((zero_stats['zero_midpoint'] >= start_date_x) & (zero_stats['zero_midpoint'] <= end_date_x))
+                    )
+            zero_stats = zero_stats[~mask]
         
         zero_stats['zero_midpoint'] =pd.to_datetime(zero_stats['zero_midpoint'])
         x_sorted = zero_stats['zero_midpoint'].values
@@ -2659,7 +3601,10 @@ def zero_correct_interpolated_quad(data, channels, plot=False):
         print(f'Interpolated zero correction applied to {channel}')
         
         if plot:
-            
+
+            import matplotlib as mpl
+            mpl.rcParams['agg.path.chunksize'] = 10000
+
             fig, ax = plt.subplots( 3, 1, figsize=(12, 8))
             
             ax[0].errorbar(zero_stats['zero_midpoint']
@@ -2672,7 +3617,7 @@ def zero_correct_interpolated_quad(data, channels, plot=False):
                              , label='zero measurement means, +/- 1std'
                              )
             #ax.plot(cts_data_zero['Date_time'], cts_data_zero[column_name], label='raw zero data')
-            ax[0].plot(data['Date_time'], data[f'{channel}_zero_offset'], label='zero_interp_correction')
+            ax[0].plot(data['Date_time'], data[f'{channel}_zero_offset'])#, label='zero_interp_correction')
             ax[0].set_xlabel('Date_time')
             ax[0].set_ylabel(column_name)
             ax[0].set_title(f'{channel} zero correction')
@@ -2680,20 +3625,27 @@ def zero_correct_interpolated_quad(data, channels, plot=False):
             
             ax[1].hist(zero_stats[f'{column_name}_mean'], bins=50)
             ax[1].set_xlabel(column_name)
-            
+            r = data.copy()
+            mask = r["Task"] ==4
+            r = r[mask]
             # Subplot 1: The Result
             # Plot the final corrected data to see if the baseline is now flat
-             
-            ax[2].plot(data['Date_time'], 
-                       data[f'{channel}_diff_cts_ref_norm_zero_corr'], 
+            ax[2].plot(r['Date_time'], 
+                       r[f'{channel}_diff_cts_ref_norm_zero_corr'], 
                        color='green', 
                        linewidth=0.5, 
                        label='Corrected Signal')
+            #ax[2].plot(data['Date_time'], 
+             #          data[f'{channel}_diff_cts_ref_norm_zero_corr'], 
+             #          color='green', 
+             #          linewidth=0.5, 
+              #         label='Corrected Signal')
             
             # Draw a dashed line at 0 for reference
             ax[2].axhline(0, color='black', linestyle='--', alpha=0.5)
             
             ax[2].set_ylabel('Corrected Signal [counts]')
+            ax[2].set_ylim(ymin = -0.02, ymax =0.02)
             ax[2].set_xlabel('Time')
             ax[2].set_title(f'Final Corrected Data: {channel}')
             ax[2].legend(loc='best')
@@ -2701,7 +3653,7 @@ def zero_correct_interpolated_quad(data, channels, plot=False):
             
             plt.show()
     
-    return data     
+    return data      
 
 def zero_correct_TAS_twenty_sixth(data, channels, plot=False):
     
@@ -2779,7 +3731,242 @@ def zero_correct_TAS_twenty_sixth(data, channels, plot=False):
             
             plt.show()
 
-    return data   
+    return data
+
+def zero_correct_MH_bad_zeros(data, channels, removal_zero, selection_type, plot=True):
+    """
+    """
+    print('\nCalculating zero correction')
+    # use a mask to select all of the zero data associated with task 4
+    # set the index to Date_time for averaging later
+    cts_data_zero = data.copy()
+    start_of_zero = (cts_data_zero['Task'] == 4) & (cts_data_zero['Task'].shift(1) != 4)
+    cts_data_zero['zero_number'] = start_of_zero.cumsum()
+    cts_data_zero = cts_data_zero[(cts_data_zero['Task']==4) & (cts_data_zero['Peak_find_flag']==0)]
+    grouped_zeros = cts_data_zero.groupby('zero_number')
+    
+    if 'sig_B' in channels:
+        
+        cts_data_zero['sig_B_diff_cts_ref_norm'] = np.where(
+            (cts_data_zero['BLC_0_flag'] == 1.0) & (cts_data_zero['BLC_1_flag'] == 1.0)
+            , cts_data_zero['sig_B_diff_cts_ref_norm']
+            , np.nan
+            )
+    
+    for channel in channels:
+
+        column_name = f'{channel}_diff_cts_ref_norm'
+        
+        zero_stats = grouped_zeros.agg({
+            column_name: ['mean', 'std', 'count'],
+            'Date_time': 'mean'
+            }).dropna()
+        
+        # Flattening the MultiIndex columns
+        zero_stats.columns = ['_'.join(col).strip() for col in zero_stats.columns.values]
+        
+        # Renaming for clarity
+        zero_stats = zero_stats.rename(columns={
+            'Date_time_mean': 'zero_midpoint'
+        })
+        
+        mean_zero = zero_stats[f'{column_name}_mean'].mean()
+        std_zero = zero_stats[f'{column_name}_mean'].std()
+        lower_limit = mean_zero - 3*std_zero
+        upper_limit = mean_zero + 3*std_zero
+        spike_mask = ((zero_stats[f'{column_name}_mean'] > lower_limit)
+            & (zero_stats[f'{column_name}_mean'] < upper_limit))
+        
+        zero_stats = zero_stats[spike_mask]
+        zero_stats['zero_midpoint'] =pd.to_datetime(zero_stats['zero_midpoint'])
+        #selection_type = [arb, photolytic]
+    
+        if selection_type == "arb":
+            low_level = zero_stats['sig_diff_cts_ref_norm_mean'] <= -0.005
+            zero_stats = zero_stats[low_level]
+        elif selection_type == "photolytic":   
+            start_time = datetime.time(20, 0, 0)
+            end_time = datetime.time(3, 0, 0)
+            time_only = zero_stats['Date_time'].dt.time
+            mask = (time_only >= start_time) & (time_only <= end_time)
+            zero_stats = zero_stats[~mask].copy()
+        else:
+            continue
+        
+        #doing the different zero applications to the data
+        removal_zero = removal_zero
+        
+        #09/02/2026: to remove the spikes from the 02-06/06/2025 DY195 data, will need to remove this 
+        removal_zero = removal_zero
+        if removal_zero is True:
+            
+            start_date = '2025-04-29 00:00:00'
+            end_date = '2025-05-26 00:00:00'
+            
+            mask = (
+                ((zero_stats['zero_midpoint'] >= start_date) & (zero_stats['zero_midpoint'] <= end_date))
+                    )
+
+            zero_stats=zero_stats[~mask]
+        
+        mean_zero_spikes_removed = zero_stats[f'{column_name}_mean'].mean()
+        print(f'\n{channel}:\nmean zero before spike removal = {mean_zero}'
+              f'\nmean zero after spike removal = {mean_zero_spikes_removed}')
+        # Define the filename (optionally include the channel name to avoid overwriting)
+        stats_csv_name = f"{channel}_zero_statistics.csv"
+        
+        # Save the zero_stats DataFrame to CSV
+        zero_stats.to_csv(stats_csv_name, index=False)
+        
+        print(f"Successfully saved stats for {channel} to {stats_csv_name}")
+        """   
+        mean_correction = mean_zero_spikes_removed # The overall mean after spike removal
+        correction_values = np.full(len(data), mean_correction)
+        
+        data[f'{channel}_zero_offset'] = correction_values
+        data[f'{channel}_diff_cts_ref_norm_zero_corr'] = data[column_name] - correction_values
+        print(f'zero correction applied to {channel}')
+        """
+        final_corrected_data = data.copy()
+        final_corrected_data[f'{channel}_zero_offset'] = np.nan
+        final_corrected_data[f'{channel}_diff_cts_ref_norm_zero_corr'] = np.nan
+        ##############################################################
+                        #AVERAGE OVER THESE PERIODS!
+        ##############################################################
+        observation_windows =[("2025-05-29 00:00:00", "2025-06-26 00:00:00")]
+    
+        for start, end in observation_windows:
+            mask_window = (final_corrected_data.index >= start) & (final_corrected_data.index <= end)
+            z_mask = (zero_stats['zero_midpoint'] >= start) & (zero_stats['zero_midpoint'] <= end)
+            local_mean = zero_stats.loc[z_mask, f'{column_name}_mean'].mean()
+            print(start, end, local_mean)
+            if not pd.isna(local_mean):
+                final_corrected_data.loc[mask_window, f'{channel}_zero_offset'] = local_mean
+        
+        twenty_third_window = [('2025-07-23 09:49:00', '2025-07-23 17:51:00')]
+        
+        for start,end in twenty_third_window:
+            mask_window = (final_corrected_data.index >= start) & (final_corrected_data.index <= end)
+            #z_mask = (zero_stats['zero_midpoint'] >= start) & (zero_stats['zero_midpoint'] <= end)
+            mean_value = -0.0013064842679061512
+            final_corrected_data.loc[mask_window, f'{channel}_zero_offset' ] = mean_value
+        
+       
+        # --- ROBUST DUAL-STREAM LOOKUP ---
+        odd_windows = [("2025-07-23 17:51:00", "2025-07-24 08:00:00")]
+        
+        for start, end in odd_windows:
+            # 1. Slice data
+            mask_10hz = (final_corrected_data.index >= start) & (final_corrected_data.index <= end)
+            mask_stats = (zero_stats['zero_midpoint'] >= start) & (zero_stats['zero_midpoint'] <= end)
+            
+            current_10hz = final_corrected_data[mask_10hz].copy()
+            # Ensure stats are datetime and SORTED (merge_asof requirement)
+            current_stats = zero_stats[mask_stats].copy()
+            current_stats['zero_midpoint'] = pd.to_datetime(current_stats['zero_midpoint'])
+            current_stats = current_stats.sort_values('zero_midpoint')
+        
+            if not current_stats.empty:
+                # 2. Split into High and Low
+                high_stats = current_stats[current_stats[f'{column_name}_mean'] >= -0.00015].copy()
+                low_stats = current_stats[current_stats[f'{column_name}_mean'] < -0.00015].copy()
+        
+                # 3. The Lookup (Using the index of current_10hz directly)
+                # We use 'direction=nearest' to find the closest zero within 22.5 mins
+                
+                # HIGH LOOKUP
+                if not high_stats.empty:
+                    matched_high = pd.merge_asof(
+                        current_10hz.index.to_frame(name='ts'),
+                        high_stats[['zero_midpoint', f'{column_name}_mean']],
+                        left_on='ts',
+                        right_on='zero_midpoint',
+                        direction='nearest',
+                        tolerance=pd.Timedelta(minutes=45)
+                    )
+                    final_corrected_data.loc[mask_10hz, f'{channel}_high_offset'] = matched_high[f'{column_name}_mean'].values
+        
+                # LOW LOOKUP
+                if not low_stats.empty:
+                    matched_low = pd.merge_asof(
+                        current_10hz.index.to_frame(name='ts'),
+                        low_stats[['zero_midpoint', f'{column_name}_mean']],
+                        left_on='ts',
+                        right_on='zero_midpoint',
+                        direction='nearest',
+                        tolerance=pd.Timedelta(minutes=45)
+                    )
+                    final_corrected_data.loc[mask_10hz, f'{channel}_low_offset'] = matched_low[f'{column_name}_mean'].values
+         ##############################################################
+                         #INTERP OVER THESE PERIODS!
+         ##############################################################
+        interp_windows = [("2025-05-29 00:00:00", "2025-07-26 00:00:00")]
+            #('2025-06-18 08:00:00', '2025-06-18 17:48:16')]
+        for start, end in interp_windows:
+            mask_window = (final_corrected_data.index >= start) & (final_corrected_data.index <= end)
+            if mask_window.any():
+                from scipy.interpolate import make_interp_spline
+                
+                # Use ALL available zero points to build the curve
+                x_pts = zero_stats['zero_midpoint'].values.astype(np.int64)
+                y_pts = zero_stats[f'{column_name}_mean'].values
+                
+                # k=1 is linear interpolation (safe). Use k=3 for smooth curves.
+                spline = make_interp_spline(x_pts, y_pts, k=1)
+                
+                # Calculate values for every timestamp in the window
+                target_x = final_corrected_data.loc[mask_window].index.values.astype(np.int64)
+                final_corrected_data.loc[mask_window, f'{channel}_zero_offset'] = spline(target_x)
+
+        # FINAL CALCULATION for this channel
+        final_corrected_data[f'{channel}_diff_cts_ref_norm_zero_corr'] = (
+            final_corrected_data[column_name] - final_corrected_data[f'{channel}_zero_offset']
+        )
+
+        #print(f"Total rows in output: {len(data)}")
+        #print("--- DATA AUDIT ---")
+        #print(f"Total Rows: {len(final_corrected_data)}")
+        #print(f"Index Start: {final_corrected_data.index.min()}")
+        #print(f"Index End:   {final_corrected_data.index.max()}")
+        #print(f"Rows after June 21st: {len(final_corrected_data[final_corrected_data.index > '2025-06-21'])}")
+        #print("--- Column Names ---")
+        #print(final_corrected_data.columns.tolist())
+        #print("\n--- Data Types and Non-Null Counts ---")
+        #print(final_corrected_data.info())
+        #print("\n--- First 5 Rows ---")
+        #print(final_corrected_data.head())
+        #print("\n--- Last 5 Rows ---")
+        #print(final_corrected_data.tail())
+        #print("\n--- Snapshot of June 24th ---")
+        # This looks at a 10-row slice from the 24th
+        #print(final_corrected_data.loc['2025-06-24 12:00:00':'2025-06-24 12:00:01'])
+
+        if plot:
+            
+            fig, ax = plt.subplots( 2, 1, figsize=(12, 8))
+            
+            ax[0].errorbar(zero_stats['zero_midpoint']
+                             , zero_stats[f'{column_name}_mean']
+                             , yerr=zero_stats[f'{column_name}_std']
+                             , linestyle=''
+                             , marker='o'
+                             , markersize=2
+                             , capsize=2
+                             , label='zero measurement means, +/- 1std'
+                             )
+            #ax.plot(cts_data_zero['Date_time'], cts_data_zero[column_name], label='raw zero data')
+            ax[0].plot(final_corrected_data['Date_time'], final_corrected_data[f'{channel}_zero_offset'], label='zero correction')
+            ax[0].set_xlabel('Date_time')
+            ax[0].set_ylabel(column_name)
+            ax[0].set_title(f'{channel} zero correction')
+            ax[0].legend(loc = "upper left")
+            
+            ax[1].hist(zero_stats[f'{column_name}_mean'], bins=50)
+            ax[1].set_xlabel(column_name)
+            
+            plt.show()
+    return final_corrected_data.reset_index(drop=True)
+
 def cal_single_point(data, channels, plot=False):
     
     print('\nChecking max cal point')
@@ -2856,6 +4043,377 @@ def cal_single_point(data, channels, plot=False):
             plt.show()
 
     return data   
+
+def analyse_cals_n(data, data_dir, channels, molecule, cal_cylinder_conc
+                 , plot, save_csv, cal_task, threshold):
+
+    print('\nsearching dataset for calibration periods')
+
+    cts_data = data.copy()
+    
+    #back to the actual code!
+    flows = [column for column in cts_data.columns
+             if 'Flow' in column]
+    cts_data['total_flow'] = cts_data[flows].sum(axis=1)
+    # Calculate the MR associated with the cal gas and flow
+    cts_data[f'{molecule}_mr'] = (
+        cts_data[f'Cal_{molecule}_MFC_Read'] / (cts_data['total_flow']
+        ) * cal_cylinder_conc)
+
+    # Isolate the columns of data required for the cal analysis
+    diff_cts_columns = [f'{channel}_diff_cts_ref_norm_zero_corr'
+                        for channel in channels]
+    additional_columns = ['Date_time', 'Task', 'lsr_pwr_mW',
+                          f'{molecule}_mr', f'Cal_{molecule}_MFC_Read',
+                          'ZA_SB_MFC_Read', f'Cal_{molecule}_MFC_set']
+    all_columns = diff_cts_columns + additional_columns
+    # Copy the dataframe containing only the columns of interest
+    cts_data = cts_data[all_columns].copy()
+
+    # Find start of calibration periods (Task 5 starts)
+    cts_data['start_of_cal'] = np.where(
+        (cts_data['Task'] == cal_task) & (cts_data['Task'].shift(1) != cal_task)
+        , 1
+        , 0
+        )
+    # Mask for calibration periods with cal SB on / off
+    cal_task_mask = ((cts_data['Task'] == cal_task))# &
+                     #(cts_data['Cal_SB_Vl'] <= 0.1))
+                     #!!!!!!!!!!!!!!!!!!!!!!!
+    cts_data = cts_data[cal_task_mask]
+    # Cumulatively sum the start_of_cal flags to number the calibrations
+    cts_data['cal_number'] = cts_data['start_of_cal'].cumsum()
+
+    num_cals = cts_data['cal_number'].max()
+    print(f'\n{num_cals} calibrations found')
+
+    # --- PLOTTING SETUP ---
+    if plot:
+        ROWS = 2#4
+        COLS = 4#8
+        MAX_PLOTS = ROWS * COLS
+        plot_counter = 0
+        fig = None
+        ax = None
+        fig_index = 1
+    # ----------------------
+
+    fieldnames = ['cal_number', 'cal_start_date_time', 'avg_lsr_pwr', 'slope',
+                  'intercept', 'R2', 'slope_std_err']
+
+    for channel in channels:
+
+        print(f'\nAnalysing cals in {channel}:')
+
+        if save_csv:
+            file_path = os.path.join(data_dir, f'{channel}_cal_data.txt')
+            # Open the file for writing (or append if it exists)
+            txtfile = open(file_path, 'w', newline='')
+            writer = csv.DictWriter(txtfile, fieldnames=fieldnames)
+
+            writer.writeheader()
+            
+        else:
+            # Create dummy objects if not making CSV
+            writer = None
+            txtfile = None
+
+        try:
+            cts_data_cal = cts_data.copy()
+            cals = cts_data_cal.groupby('cal_number')
+
+            for cal_num, cal_df in cals:
+
+                # --- PLOTTING LOGIC START ---
+                if plot:
+                    if plot_counter % MAX_PLOTS == 0:
+                        if fig is not None:
+                            plt.tight_layout()
+                            #21/01/2026 : ensures we see all of the plots!
+                            #save_name = f"cals_{channel}_{fig_index}.png"
+                            #plt.savefig(save_name)
+                            #print(f" Saved: {save_name}")
+                            fig_index += 1
+                            plt.show()
+
+                        fig, ax = plt.subplots(ROWS, COLS,
+                                               figsize=(25, 12))
+                        fig.suptitle(f'Trimmed Calibration Analysis: '
+                                     f'Time-Series & Regression ({channel})',
+                                     fontsize=16)
+                        ax = ax.flatten()
+
+                    # Two plots per cal: Time-series and Regression
+                    current_ax_reg = ax[plot_counter % MAX_PLOTS]
+                    current_ax_time = ax[(plot_counter % MAX_PLOTS) + 1]
+                # --- PLOTTING LOGIC END ---
+
+                cal_df = cal_df.reset_index(drop=True).copy(deep=True)
+
+                if len(cal_df) == 0:
+                    continue
+
+                print(f'\rcal {cal_num}', end='')
+
+                cal_start_time = cal_df['Date_time'][0]
+
+                # Identify individual calibration steps (points)
+                cal_df['cal_point_switch'] = np.where(
+                    cal_df[f'Cal_{molecule}_MFC_set'] !=
+                    cal_df[f'Cal_{molecule}_MFC_set'].shift(1)
+                    , 1
+                    , 0
+                    )
+                cal_df['cal_point'] = cal_df['cal_point_switch'].cumsum()
+                cal_points = cal_df.groupby('cal_point')
+                
+                # Reset steady_state column
+                cal_df['stable_cal_point'] = False
+
+                # ==========================================================
+                # --- CORRECTED STEADY-STATE (TRIM) LOGIC ---
+                # This applies a 5% trim to the start and end of EACH cal_point
+                # ==========================================================
+                for cal_point, cal_point_df in cal_points:
+
+                    point_length = len(cal_point_df)
+
+                    # Calculate the number of points to trim (5% of length)
+                    trim_n = int(np.ceil(point_length * 0.05))
+
+                    # Check if there's enough data left (> 10% trimmed)
+                    if point_length > 2 * trim_n:
+
+                        # Get indices of the middle 90% (trimmed data)
+                        stable_cal_point_indices = cal_point_df.iloc[
+                            trim_n : point_length - trim_n].index
+
+                        # Set 'stable_cal_point' to True for these indices
+                        cal_df.loc[stable_cal_point_indices,
+                                   'stable_cal_point'] = True
+                # ==========================================================
+
+                stable_cal_point_mask = cal_df['stable_cal_point'] == True
+                cal_df_filtered = cal_df[stable_cal_point_mask].copy()
+                #remove any single data point (e.g. one stable group), if the mean value of it is less than 0. 
+                #09/02/2026
+                cal_df_filtered = cal_df_filtered.groupby('cal_point').filter(
+                    #lambda x: is a shorthand way of defining a function. It defines the input. The code after the : is the logic applied.
+                    lambda x: x[f'{channel}_diff_cts_ref_norm_zero_corr'].mean() > 0)
+                if len(cal_df_filtered) == 0:
+                    continue
+
+
+                regression_cols = [f'{molecule}_mr',
+                                   f'{channel}_diff_cts_ref_norm_zero_corr']
+                cal_df_cleaned = cal_df_filtered.replace(
+                    [np.inf, -np.inf], np.nan).dropna(
+                        subset=regression_cols)
+
+                # --- Prepare data for regression ---
+                X = cal_df_cleaned[f'{molecule}_mr']
+                Y = cal_df_cleaned[f'{channel}_diff_cts_ref_norm_zero_corr']
+
+                cal_laser_power = cal_df_filtered['lsr_pwr_mW'].mean()
+
+                # Check for sufficient data points before regression
+                if len(X) < 2 or X.nunique() < 2:
+                    print(' filtered data has no points')
+                    slope, intercept, r_value, p_value, \
+                        std_err_of_slope = [np.nan] * 5
+                else:
+                    slope, intercept, r_value, p_value, \
+                        std_err_of_slope = linregress(X, Y)
+
+                if plot:
+                    # ==========================================================
+                    # --- PLOT 1: TIME SERIES ---
+                    # ==========================================================
+
+                    # 1. Plot all data points against time
+                    current_ax_time.plot(cal_df['Date_time'],
+                                         cal_df[f'{channel}_diff_cts_ref_norm_zero_corr'],
+                                         label='All Data', color='gray',
+                                         linewidth=1, alpha=0.5)
+
+                    # 2. Highlight the steady-state regions
+                    current_ax_time.plot(
+                        cal_df_filtered['Date_time'],
+                        cal_df_filtered[f'{channel}_diff_cts_ref_norm_zero_corr'],
+                        label='Trimmed (90%)', color='firebrick',
+                        linewidth=1)
+
+                    # Formatting for Time Plot
+                    current_ax_time.set_title(
+                        f'Cal {cal_num} - Time Series (90% Trim)',
+                        fontsize=8)
+                    current_ax_time.tick_params(axis='both', which='major',
+                                                labelsize=6)
+                    current_ax_time.tick_params(axis='x', rotation=45)
+                    current_ax_time.set_ylabel('Signal (norm. cts)',
+                                               fontsize=7)
+                    current_ax_time.legend(loc='upper right', fontsize=6)
+
+                    # ==========================================================
+                    # --- PLOT 2: REGRESSION ---
+                    # ==========================================================
+
+                    # 1. Plot all data points for this cal (as background)
+                    current_ax_reg.scatter(
+                        cal_df[f'{molecule}_mr'],
+                        cal_df[f'{channel}_diff_cts_ref_norm_zero_corr'],
+                        label='All Data', s=5, alpha=0.3, color='gray')
+
+                    # 2. Plot filtered (trimmed) points
+                    current_ax_reg.scatter(X, Y,
+                                           label='Trimmed Data', s=10,
+                                           color='darkslateblue')
+
+                    # 3. Plot the regression line if successful
+                    if not np.isnan(slope):
+                        x_fit = np.linspace(X.min(), X.max(), 100)
+                        y_fit = slope * x_fit + intercept
+                        current_ax_reg.plot(
+                            x_fit, y_fit,
+                            label=f'Fit (R2: {r_value**2:.2f})',
+                            color='red', linestyle='--')
+                        current_ax_reg.text(
+                            0.05, 0.95, f'Slope: {slope:.2e}',
+                            transform=current_ax_reg.transAxes,
+                            verticalalignment='top', fontsize=6)
+                    else:
+                        current_ax_reg.text(
+                            0.5, 0.5, 'Regression analysis failed',
+                            transform=current_ax_reg.transAxes,
+                            verticalalignment='center',
+                            horizontalalignment='center', color='red')
+
+                    # Formatting for Regression Plot
+                    current_ax_reg.set_title(
+                        f'Cal {cal_num} - Regression', fontsize=8)
+                    current_ax_reg.tick_params(axis='both', which='major',
+                                                labelsize=6)
+                    current_ax_reg.set_xlabel('Mixing Ratio (MR)',
+                                              fontsize=7)
+                    current_ax_reg.legend(loc='lower right', fontsize=6)
+
+                    plot_counter += 2
+
+
+                new_data_to_append = {
+                    'cal_number': cal_num,
+                    'cal_start_date_time': cal_start_time,
+                    'avg_lsr_pwr': cal_laser_power,
+                    'slope': slope,
+                    'intercept': intercept,
+                    'R2': r_value**2,
+                    'slope_std_err': std_err_of_slope
+                    }
+
+                if save_csv:
+                    writer.writerow(new_data_to_append)
+
+            # After the channel loop, close the file if it was opened
+            if save_csv:
+                txtfile.close()
+
+        except Exception as e:
+            print(f"An error occurred for channel {channel}: {e}")
+            if save_csv and txtfile:
+                txtfile.close()
+            continue
+
+        # After the loop finishes, show the last partially filled figure
+        if plot and fig is not None:
+            for i in range(plot_counter % MAX_PLOTS, MAX_PLOTS):
+                ax[i].axis('off')
+            plt.tight_layout()
+            save_name = f"cals_{channel}_{fig_index}.png"
+            plt.savefig(save_name)
+            print(f" Saved final page: {save_name}")
+            #plt.savefig("./cals_on_plots.html")
+            plt.show()
+            plot_counter = 0
+            fig_index = 1 # reset for the next channels 21/01/2026
+            fig = None
+            ax = None
+            
+    if plot:
+
+        # Create subplots: one row per channel
+        fig, ax = plt.subplots(len(channels), 1, 
+                               figsize=(12, len(channels) * 6))
+
+        # Ensure ax is always iterable even for a single channel
+        if len(channels) == 1:
+            ax = [ax] 
+
+        for i, channel in enumerate(channels):
+
+            file_path = os.path.join(data_dir, f'{channel}_cal_data.txt')
+            cal_data_df = pd.read_csv(file_path)
+
+            # Filter out poor regressions (R2 < 0.75) and sort by time
+            cal_df_filtered = cal_data_df[
+                cal_data_df['R2'] >= 0.8
+            ].sort_values(by='cal_start_date_time')
+
+            # Convert time column to datetime objects
+            time_data = pd.to_datetime(
+                cal_df_filtered['cal_start_date_time'])
+            
+            # --- Plotting ---
+            
+            ax[i].errorbar(
+                time_data,                           # X-axis: Time
+                cal_df_filtered['slope'],            # Y-axis: Calibration Factor
+                yerr=cal_df_filtered['slope_std_err'], # Error bars (y-uncertainty)
+                fmt='o',                             # Format: 'o' for circles (scatter)
+                capsize=3,                           # Size of the error bar caps
+                color='darkslateblue',
+                label='calculated cal factors'
+            )
+                               
+            # --- Formatting ---
+            ax[i].set_xlabel('cal start time')
+            ax[i].set_ylabel('calibration factor')
+            ax[i].set_title(f'{channel}')
+            ax[i].legend()
+
+        plt.tight_layout()
+        plt.savefig('./cals.png')
+        #plt.savefig('./cals.html')
+        plt.show()
+    # --- Summary Printout ---
+    print("\n" + "="*30)
+    print("CALIBRATION QUALITY SUMMARY")
+    print("="*30)
+    
+    threshold = threshold
+    #21/01/2026 changes
+    fig_index = 1
+    for channel in channels:
+        file_path = os.path.join(data_dir, f'{channel}_cal_data.txt')
+        if os.path.exists(file_path):
+            summary_df = pd.read_csv(file_path)
+            # Count total vs high quality
+            total_cals = len(summary_df)
+            high_quality_cals = len(summary_df[summary_df['R2'] > threshold])
+            
+            print(f"Channel: {channel}")
+            print(f"  - Total calibrations analyzed: {total_cals}")
+            print(f"  - Cals with R2 > {threshold}: {high_quality_cals} ({(high_quality_cals/total_cals*100):.1f}%)")
+        else:
+            print(f"Channel: {channel} - No calibration file found.")
+           
+            
+    print("="*30 + "\n")   
+    return
+
+
+
+
+
 
 def analyse_cals(data, data_dir, channels, molecule, cal_cylinder_conc
                  , plot, save_csv, cal_task, threshold, cal_low_point_check):
@@ -5542,6 +7100,8 @@ def apply_cals_average(data_dir, data, channels, BLC, R2_limit):
 
 def apply_cals_interpolated(data_dir, data, channels, BLC, R2_limit):
     # Important: Reset index here to avoid the "Date_time is both index and column" error
+    print("Applying the cal factors to the data now :) ")
+    
     data_MRs = data.copy().reset_index(drop=True)
     
     # Create subplots: one row per channel
@@ -5842,8 +7402,37 @@ def resample_data(data, averaging):
     resample_data = resample_data.resample(averaging).mean()
     resample_data = resample_data.reset_index()
     
+    start_date = "2025-03-06 20:24:00"
+    end_date = "2025-03-06 20:35:00"
+    
+    start_date_x = "2025-03-07 08:53:00"
+    end_date_x = "2025-03-07 08:56:01"
+    mask = (
+        ((resample_data['Date_time'] >= start_date) & (resample_data['Date_time'] <= end_date))|
+        ((resample_data['Date_time'] >= start_date_x) & (resample_data['Date_time'] <= end_date_x))
+            )
+    resample_data=resample_data[~mask]
+    
+    resample_data["Date_time"] = pd.to_datetime(resample_data["Date_time"])
+    
+    fig, i = plt.subplots(1,1)
+    i.plot(resample_data["Date_time"], resample_data["amb_SO2_ppt"])
+    plt.xlabel("Datetime (UTC)", fontsize= 20)
+    plt.ylabel("SO2 (ppt)", fontsize= 20)
     return resample_data
 
+def resample_data_median(data, averaging):
+    
+    resample_data = data.copy()
+    resample_data = resample_data.set_index('Date_time')
+    resample_data = resample_data.resample(averaging).median()
+    resample_data = resample_data.reset_index()
+    
+    fig, i = plt.subplots(1,1)
+    i.plot(resample_data["Date_time"], resample_data["amb_SO2_ppt"])
+    plt.xlabel("Datetime (UTC)", fontsize= 20)
+    plt.ylabel("SO2 (ppt)", fontsize= 20)
+    return resample_data
 def save_to_csv(data_dir, filename, data):
     
     file_path = os.path.join(data_dir, f'{filename}.txt')
@@ -5855,13 +7444,28 @@ def save_to_csv_unresamp(data_dir, filename, data):
     data.to_csv(file_path, mode='w', header=True, index=False, sep=',')    
 
 
+###figuring out the errors for the data###
+def error_calculation(data):
+    """
+    Parameters
+    ----------
+    data : finalised data.
 
-  
+    Returns
+    -------
+    None.
 
+    """
+    data = data.copy()
+#will need the data where we still have the MFC in, to be able to calc the std of the read
+#need the error of the cals (SO2 MFC, ZA MFC, Cell Flow)
 
+#need to find all data when we have a cal (use analyse cals logic)
+#find error at each cal point (total), then take a mean of std to get overall value?
+    cal_error = data[""]
+    zero_error = zero_data[""]
 
-
-
+    np.sqrt
 
 
 
@@ -6548,7 +8152,7 @@ def DY195_flagged_periods_for_keeping_spikes(interuptions_csv_path, SO2_data):
     return SO2_data_clean
 
 
-def load_all_winds_DY195(folder_path):
+def DY195_load_all_winds(folder_path):
     all_data = []
     
     # 1. Get the list of files
@@ -6563,7 +8167,7 @@ def load_all_winds_DY195(folder_path):
             
             # 3. Basic cleaning (Dates)
             if 'time10Hz' in df.columns:
-                df['time10Hz'] = pd.to_datetime(df['time10Hz'])
+                df['Date_time'] = pd.to_datetime(df['time10Hz'])
             
             all_data.append(df)
             
@@ -6577,6 +8181,38 @@ def load_all_winds_DY195(folder_path):
         print("Success: All data combined and sorted.")
         return combined_df
 
+def DY195_meterological_parameters_testing(data, underway_path):
+    data = data.copy()
+    underway = pd.read_csv(underway_path)
+    data["Date_time"] = pd.to_datetime(data["Date_time"] , utc=True)
+    underway["Date_time"]= underway["time_1min"]
+    underway["Date_time"] = pd.to_datetime(underway["Date_time"] , utc=True)
+    combined_df = pd.merge(data, underway, on ="Date_time")
+    combined_df["Date_time"] = pd.to_datetime(combined_df["Date_time"])
+    #plot out the windspeed and the so2 data
+    fig, h = plt.subplots(5,1, sharex = True)
+    h[0].plot(combined_df["Date_time"], combined_df["Wspd_m_s_1min"], label = "wind speed")
+    h[0].set_ylabel("Wind speed")
+    h[1].plot(combined_df["Date_time"], combined_df["amb_SO2_ppt"], label = "so2_ppt")
+    h[1].set_ylabel("SO2 (ppt)")
+    h[2].plot(combined_df["Date_time"], combined_df['Tair_C_1min'], label = "Air temp")
+    h[2].set_ylabel("Air temp (deg C)")
+    h[3].plot(combined_df["Date_time"], combined_df['RH_percent_1min'], label = "RH")
+    h[3].set_ylabel("Relative humidity")
+    h[4].plot(combined_df["Date_time"], combined_df['Pres_mb_1min'], label = "Pressure (mbar)")
+    h[4].set_ylabel("Pressure (mbar)")
+    for ax in h.flat:
+        ax.legend()
+    #is there a correlation between the data?
+    fig, r = plt.subplots(2,2)
+    r[0,0].scatter(combined_df["amb_SO2_ppt"] , combined_df["Wspd_m_s_1min"], label = "Wind speed")
+    r[0,1].scatter(combined_df["amb_SO2_ppt"] , combined_df['Tair_C_1min'], label = "Air temp")
+    r[1,0].scatter(combined_df["amb_SO2_ppt"] , combined_df['RH_percent_1min'], label = "RH")
+    r[1,1].scatter(combined_df["amb_SO2_ppt"] , combined_df['Pres_mb_1min'], label = "Pressure")
+    for ax in r.flat:
+        ax.legend()
+    
+    
 
 def load_ship_track(underway_file_path, filtered_DY195_SO2_data):
     df = pd.read_csv(underway_file_path, sep=None, engine='python', quotechar='"')
@@ -6727,7 +8363,7 @@ def DY195_in_sector(underway_data, filtered_DY195_SO2_data):
             .rename(columns={'index': 'Date_time'})
             .drop(columns=['COG_deg_1min'], errors='ignore'))
 
-def restart_removed (data):
+def restart_removed_DY195(data):
     data = data
     #need to remove the time period of 8-9:15
 
@@ -6827,12 +8463,11 @@ def DY195_in_sector_diurnal_1min(SO2_1min_in_sector):
     #DOING with 1min averaged data!
     SO2_in_sector_1_min_for_hour['hour'] = SO2_in_sector_1_min_for_hour['Date_time'].dt.hour
     grouped = SO2_in_sector_1_min_for_hour.groupby('hour')['amb_SO2_ppt']
-    
-    #DOING MEAN DIURNALS
+    ################################################
+                #DOING MEAN DIURNALS
+    ################################################
     diurnal_mean_1_1 = grouped.mean()
     diurnal_se_1_1 = grouped.sem()
-    
-
     
     fig, SO2_1min_1hour = plt.subplots(figsize = (10,5))
     SO2_1min_1hour.plot(diurnal_mean_1_1.index, diurnal_mean_1_1.values, 
@@ -6907,14 +8542,16 @@ def DY195_in_sector_diurnal_1min(SO2_1min_in_sector):
     plt.tight_layout()
     plt.show()
     
-    ######-----------#######
-    #DOING MEDIANS
-    diurnal_median_1_1 = grouped.median()
-    diurnal_se_1_1 = grouped.sem()
+    ################################################
+                    #DOING MEDIANS
+    ################################################
+    grouped_hourly = SO2_in_sector_1_min_for_hour.groupby('hour')['amb_SO2_ppt']
+    diurnal_median_1_1 = grouped_hourly.median()
+    diurnal_se_1_1 = grouped_hourly.sem()
     
    
     fig, SO2_1min_1hour = plt.subplots(figsize = (10,5))
-    x_values = diurnal_median_1_1.index.astype(str)
+    x_values = diurnal_median_1_1.index#.astype(str)
     SO2_1min_1hour.plot(x_values, diurnal_median_1_1.values, 
                         marker='o', linestyle='-', color='black', label='Median $SO_2$')
     # Plot shaded SE band
@@ -7256,7 +8893,7 @@ def cloud_fraction(cloud_fraction_data_path, SO2_1min_in_sector):
 
     return combined_df.reset_index()
 """
-#def DY195_in_sector_winds(path):
+
     
 
 def timezone_conversion_DY195(data):
@@ -7304,7 +8941,7 @@ def MH_flagged_periods(MH_interuptions_path, SO2_data):
     # 5. Apply the windows from the interruptions table
     for _, row in interuptions.iterrows():
         mask = (SO2_data['Date_time'] >= row['Start']) & (SO2_data['Date_time'] <= row['End'])
-        if row['flag'] == 1:
+        if row['flag'] == 0:
             SO2_data.loc[mask, 'flag'] = 1  
         #if row['other_flag'] == 1:
            # SO2_data.loc[mask, 'other_remove'] = 1
@@ -7380,10 +9017,20 @@ def load_baseline_flagger(data_dir_MH_base, MH_Baseline, SO2_data):
 #all of the files should be in UTC
 def Tasmania_flagged_periods(TAS_interuptions_path, SO2_data):
     #TODO
-    interuptions = pd.read_csv(TAS_interuptions_path)
-    
+    interuptions = pd.read_csv(
+        TAS_interuptions_path, 
+        sep=",", 
+        encoding='latin1',    # Force these 4 columns
+        header=0,           # Tell it the first row in the file is the old header to be replaced
+        engine='python', 
+        on_bad_lines='skip' # Just in case there are still trailing commas
+    )
+    expected_cols = ['Start', 'End', 'data_flag','peak_find_not_catching', 'trailing_from_set_flags', 'note']
+    for col in expected_cols:
+        if col not in interuptions.columns:
+            interuptions[col] = None # Add missing columns as empty
     # 2. Clean up flags: fill empty with 0 and ensure they are integers
-    flag_cols = ['so2_flag', 'other_flag'] 
+    flag_cols = ['data_flag','peak_find_not_catching', 'trailing_from_set_flags'] 
     for col in flag_cols:
         if col in interuptions.columns:
             interuptions[col] = interuptions[col].fillna(0).astype(int)
@@ -7395,28 +9042,68 @@ def Tasmania_flagged_periods(TAS_interuptions_path, SO2_data):
     interuptions['End'] = pd.to_datetime(interuptions['End'], dayfirst=True)
 
     # 4. Initialize flags in SO2_data as 0
-    SO2_data['so2_remove'] = 0
-    SO2_data['other_remove'] = 0
+    SO2_data['data_flag_remove'] = 0
+    SO2_data['peak_find_not_catching_remove'] = 0
+    SO2_data['trailing_from_set_flags_remove'] = 0
 
     # 5. Apply the windows from the interruptions table
-    for _, row in interuptions.iterrows():
+    for i, row in interuptions.iterrows():
         mask = (SO2_data['Date_time'] >= row['Start']) & (SO2_data['Date_time'] <= row['End'])
-        if row['so2_flag'] == 1:
-            SO2_data.loc[mask, 'so2_remove'] = 1  
-        if row['other_flag'] == 1:
-            SO2_data.loc[mask, 'other_remove'] = 1
-
+        # Check how many rows are being caught
+        num_flagged = mask.sum()
+        
+        if row['data_flag'] == 1: # Ensure this matches your column name!
+            SO2_data.loc[mask, 'data_flag_remove'] = 1
+        if row['peak_find_not_catching'] == 1: # Ensure this matches your column name!
+            SO2_data.loc[mask, 'peak_find_not_catching_remove'] = 1
+        if row['trailing_from_set_flags'] == 1: # Ensure this matches your column name!
+            SO2_data.loc[mask, 'trailing_from_set_flags_remove'] = 1
+            print(f"Row {i}: Flagging {num_flagged} data points between {row['Start']} and {row['End']}")
+        
+        #if row['data_flag'] == 0:
+            #SO2_data.loc[mask, 'data_flag_remove'] = 1  
+    import matplotlib.dates as mdates
+    from brokenaxes import brokenaxes
+    fig = plt.figure(figsize=(12, 6))
+    bax = brokenaxes(
+    xlims=(
+        (datetime.datetime(2025, 1, 10), datetime.datetime(2025, 1, 29)),
+        (datetime.datetime(2025, 3, 6), datetime.datetime(2025, 3, 12)) # Fixed dates
+    ),
+    hspace=0.05,
+    despine=False
+)
     # 6. Filter for clean data
     SO2_data_clean = SO2_data[
-        (SO2_data['so2_remove'] == 0) & 
-        (SO2_data['other_remove'] == 0)].copy()
-    plt.figure(figsize=(10, 5))
-    plt.plot(SO2_data_clean["Date_time"], SO2_data_clean["amb_SO2_ppt"])
-    plt.title("Cleaned SO2 Data (Flagged Periods Removed)",fontsize = 16)
-    plt.ylabel("SO2 (ppt)",fontsize = 16)
-    plt.xticks(fontsize = 16)
-    plt.yticks(fontsize = 16)
+        (SO2_data['data_flag_remove'] == 0)&
+        (SO2_data['peak_find_not_catching_remove'] == 0)&
+        (SO2_data['trailing_from_set_flags_remove'] == 0)].copy()
+    
+    bax.plot(SO2_data_clean["Date_time"], SO2_data_clean["amb_SO2_ppt"])
+    bax.set_title("Flagged Periods Removed",fontsize = 16)
+    bax.set_ylabel("SO2 (ppt)",fontsize = 16)
+    # 4. Format the dates for every sub-axis
+    for ax in bax.axs:
+        ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%b-%d'))
+        # Optional: Rotate dates so they don't overlap
+        plt.setp(ax.get_xticklabels(), rotation=30, ha='right')
+        #plt.tight_layout()
+    # 5. Fix the diagonals (optional styling)
+    [x.remove() for x in bax.diag_handles]
+    bax.draw_diags()
+    # Instead of tight_layout, use this at the very end before plt.show()
+    #plt.subplots_adjust(left=0.15, bottom=0.15, right=0.95, top=0.90)
+    plt.ylim(ymax = 500)
     plt.show()
+    
+    fig, o = plt.subplots(1,1)
+    plt.title("no brokenaxis, for QAQC")
+    o.plot(SO2_data_clean["Date_time"], SO2_data_clean["amb_SO2_ppt"])
+    plt.xlabel("Datetime (UTC)", fontsize = 20)
+    plt.xticks(fontsize = 16)
+    plt.ylabel("SO2 (ppt)", fontsize = 20)
+    plt.yticks(fontsize = 16)
+    
     
     return SO2_data_clean
 
@@ -7429,7 +9116,7 @@ def Tas_baseline(T_baseline_flagger_path, data):
     
     # This swaps 'datetime' for 'Date_time'
     T_baseline_flagger = T_baseline_flagger.rename(columns={'datetime': 'Date_time'})
-    T_baseline_flagger["Date_time"] = pd.to_datetime(T_baseline_flagger["Date_time"])
+    T_baseline_flagger["Date_time"] = pd.to_datetime(T_baseline_flagger["Date_time"],dayfirst = True)# dayfirst = False)
     #plot out the baseline data across the top of the SO2 data, to show the 
     #baseline periods during the campaign.
     fig, ax = plt.subplots(figsize=(10, 6)) # figsize sets the plot size
@@ -7440,7 +9127,7 @@ def Tas_baseline(T_baseline_flagger_path, data):
         color='red', alpha=0.2, transform=ax.get_xaxis_transform(), label='Baseline')
     plt.ylabel("Baseline", fontsize = 24)
     r = ax.twinx()
-    r.plot(data["Date_time"], data["amb_SO2_ppt"], label="Ambient Corrected Data", color='red', linestyle='--')
+    r.plot(data["Date_time"], data["amb_SO2_ppt"], label="Ambient Corrected Data", color='red')
     plt.ylabel("SO2 (ppt)", fontsize = 24)
     ax.set_xlabel("Datetime")
     ax.set_title("Baseline flagged SO2 data")
@@ -7448,6 +9135,8 @@ def Tas_baseline(T_baseline_flagger_path, data):
     plt.show()# Filter by date
     #then filter out for the periods where the baseline flag ==1
     baseline_SO2 = data.set_index('Date_time').resample('1min').ffill().reset_index()
+    #baseline_SO2 = data.set_index('Date_time').ffill().reset_index()
+    
     # merged headers = Date_time, amb_SO2_ppt, BL3
     baseline_SO2["Date_time"] = pd.to_datetime(baseline_SO2["Date_time"])
     print("Merging the SO2 and baseline flagger")
@@ -7462,16 +9151,18 @@ def Tas_baseline(T_baseline_flagger_path, data):
     SO2_baseline_flagged["Date_time"] = pd.to_datetime(SO2_baseline_flagged["Date_time"])
     #plot out the data when we were in the baseline sector
     fig, baseline_flagged_SO2 = plt.subplots(1,1)
-    baseline_flagged_SO2.plot(SO2_baseline_flagged["Date_time"], SO2_baseline_flagged["amb_SO2_ppt"], color = "green")
-    plt.ylabel("SO2 (ppt)", fontsize = 24)
-    plt.xlabel("Datetime", fontsize = 24)
-    plt.title("SO2 in the baseline sector")
+    baseline_flagged_SO2.scatter(SO2_baseline_flagged["Date_time"], SO2_baseline_flagged["amb_SO2_ppt"], color = "green")
+    plt.ylabel("SO2 (ppt)", fontsize = 20)
+    plt.xlabel("Datetime (UTC)", fontsize = 20)
+    plt.xticks(fontsize = 16)
+    plt.yticks(fontsize = 16)
+    plt.title("$SO_2$ in the baseline sector", fontsize = 20)
     
     print("Producing 1min avg SO2 data for the baseline sector")
     SO2_in_baseline = SO2_baseline_flagged.drop(columns=["BL3"])
     output_filename = "SO2_TAS_baseline_1min_avg.csv"
     SO2_in_baseline.to_csv(output_filename, index=False)
-    
+    """
     five_min_resample = SO2_in_baseline.resample("5min").mean()
     five_min_resample["Date_time"] = pd.to_datetime(five_min_resample["Date_time"])
     
@@ -7484,33 +9175,35 @@ def Tas_baseline(T_baseline_flagger_path, data):
     print("Producing 5min avg SO2 data for the baseline sector")
     output_filename = "SO2_TAS_baseline_5min_avg.csv"
     five_min_resample.to_csv(output_filename, index=False)
+    """
     return SO2_in_baseline
 
 def timezone_conversion_AEDT(data):
+    data = data.copy()
     aedt = pytz.timezone("Australia/Sydney")
     time_zone_converted_data = data.copy()
     print("Data becoming Australian")
-    time_zone_converted_data['Date_time'] = pd.to_datetime(time_zone_converted_data['Date_time'], utc=True).dt.tz_convert(aedt)
+    time_zone_converted_data['Date_time'] = pd.to_datetime(time_zone_converted_data['Date_time'],utc=True).dt.tz_convert(aedt)
     
-    #pick a random bit of the data to test that it has actually shifted the data to the right timezone!
-    time_conv_subset = time_zone_converted_data.loc[300:900]
-    time_utc = data.loc[300:900]
-    
-    fig, time_corr = plt.subplots(1,1)
-    time_corr.plot(time_utc["Date_time"], time_utc["amb_SO2_ppt"], 
+    fig, time_corr = plt.subplots(2,1, sharey = True)
+    time_corr[0].plot(data["Date_time"], data["amb_SO2_ppt"], 
                    color = "lightseagreen", label = "UTC")
-    time_corr.plot(time_conv_subset["Date_time"], time_conv_subset["amb_SO2_ppt"], 
+    time_corr[1].plot(time_zone_converted_data["Date_time"], time_zone_converted_data["amb_SO2_ppt"], 
                    color = "purple", label = "AEDT")
-    plt.legend(loc='best')
+    plt.legend(loc='upper left')
+
+    print("Bonza!!")
+    
     return time_zone_converted_data
 
 def TAS_windrose(data, met_data_dir, wind_dir):
-    data = data
+    #pass the data that is flagged to this function.
+    data = data.copy()
     met_data = pd.read_csv(met_data_dir)
     winds = pd.read_csv(wind_dir)
     
     #give Date_time and make sure they have the same column names!
-    data["Date_time"] = pd.to_datetime["Date_time"]
+    data["Date_time"] = pd.to_datetime(data["Date_time"])
     met_data = met_data.rename(columns={'time': 'Date_time'})
     met_data["Date_time"] = pd.to_datetime(met_data["Date_time"])
     winds = winds.rename(columns={'time': 'Date_time'})
@@ -7524,7 +9217,7 @@ def TAS_windrose(data, met_data_dir, wind_dir):
     wind_direction = winds["met_wdir"]
     
     #plot out the wind direction and the SO2 (diagnostic)
-    fig, l = plt.subplots(2,1)
+    fig, l = plt.subplots(2,1, sharex = True)
     l[0].plot(winds["Date_time"], wind_direction)
     l[0].set_ylabel("Wind Direction (°)", fontsize = 24)
     l[1].plot(data["Date_time"], so2_ppt)
@@ -7532,14 +9225,239 @@ def TAS_windrose(data, met_data_dir, wind_dir):
     l[1].set_xlabel("Datetime", fontsize = 24)
     
     
+    #resampel the SO2 to 10min (set sample reset the index)
+    SO2_ten_min = (data.set_index("Date_time").resample("10 min").mean().reset_index().sort_values("Date_time"))
+    #need to merge the data to do the times correctly.
+    merged = pd.merge_asof(
+        SO2_ten_min.sort_values('Date_time'),
+        winds[['Date_time', "met_wdir", "met_wspd"]].sort_values('Date_time'),
+        on='Date_time',
+        direction='nearest',
+        tolerance=pd.Timedelta('10min'))
+    #simple rose to visualise where the wind is coming from predominantly.
+    ax = WindroseAxes.from_ax()
+    plt.title("Winds during the campagin (Nov 2024 - Mar 2025", fontsize = 20)
+    ax.bar(wind_direction, wind_speed, normed=True, opening=0.8, edgecolor="white")
+    ax.set_legend()
+    
+    #need to fix this to have more restraints on what we are wanting to visualise!
+    ax = WindroseAxes.from_ax()
+    plt.title("SO2 (ppt) during Jan 2025", fontsize = 20)
+    ax.bar(merged["met_wdir"], merged["amb_SO2_ppt"], normed=True, opening=0.8, edgecolor="white")
+    ax.set_legend()
+    
+def TAS_in_sector_diurnal_1min(SO2_1min_in_sector):
+    #copy all the data as appropriate!
+    SO2_1min_in_sector = SO2_1min_in_sector.rename(columns={'time_1min': 'Date_time'})
+    SO2_1min_in_sector['Date_time'] = pd.to_datetime(SO2_1min_in_sector['Date_time'], 
+                                                     utc=True).dt.tz_convert('Etc/GMT+1')
+    SO2_in_sector_1_min_for_hour = SO2_1min_in_sector.copy()
+    SO2_in_sector_1_min_for_10_mins = SO2_1min_in_sector.copy()
+    
+    
+    #DOING with 1min averaged data!
+    SO2_in_sector_1_min_for_hour['hour'] = SO2_in_sector_1_min_for_hour['Date_time'].dt.hour
+    grouped = SO2_in_sector_1_min_for_hour.groupby('hour')['amb_SO2_ppt']
+    ################################################
+                #DOING MEAN DIURNALS
+    ################################################
+    diurnal_mean_1_1 = grouped.mean()
+    diurnal_se_1_1 = grouped.sem()
+    
+    fig, SO2_1min_1hour = plt.subplots(figsize = (10,5))
+    SO2_1min_1hour.plot(diurnal_mean_1_1.index, diurnal_mean_1_1.values, 
+                        marker='o', linestyle='-', color='black', label='Mean SO₂')
+    # Plot shaded SE band
+    SO2_1min_1hour.fill_between(
+        diurnal_mean_1_1.index,
+        diurnal_mean_1_1 - diurnal_se_1_1,
+        diurnal_mean_1_1 + diurnal_se_1_1,
+        color='green', alpha=0.3, label='±1 SE'
+    )
+    # Styling
+    plt.title("1hour diurnal of SO2 (DY195, whole cruise)", fontsize = 20)
+    plt.xlabel("Hour of day (UTC -1)", fontsize=22)
+    plt.ylabel("SO₂ (ppt)", fontsize=22)
+    plt.xticks(range(0, 24), fontsize=22)
+    plt.yticks(fontsize=22)
+    plt.legend(fontsize=22)
+    #import matplotlib as mpl
+    #mpl.rcParams['svg.fonttype'] = 'none'
+    plt.tight_layout()
+    
+    #10MIN BINS DIURNAL
+    SO2_in_sector_1_min_for_10_mins['time_of_day'] = SO2_in_sector_1_min_for_10_mins['Date_time'].dt.floor("10min").dt.time
+    
+    # 2. Filter the raw data (Removing the contamination)
+    mask_to_remove = (SO2_in_sector_1_min_for_10_mins['Date_time'].dt.hour == 7) & \
+                     (SO2_in_sector_1_min_for_10_mins['Date_time'].dt.minute <= 30)
+    df_filtered = SO2_in_sector_1_min_for_10_mins[~mask_to_remove].copy()
+    
+    # 3. Group the filtered data
+    grouped = df_filtered.groupby('time_of_day')['amb_SO2_ppt']
+    diurnal_mean_1_10 = grouped.mean()
+    diurnal_se_1_10 = grouped.sem()
+    
+    # --- THE FIX: Reindex to a full 24-hour day ---
+    # This ensures 07:00 exists in the index even if it has no data
+    full_day_range = pd.date_range("00:00", "23:50", freq="10min").time
+    diurnal_mean_1_10 = diurnal_mean_1_10.reindex(full_day_range)
+    diurnal_se_1_10 = diurnal_se_1_10.reindex(full_day_range)
+
+    # 4. Prepare Plotting Coordinates
+    x_vals_1_10 = np.arange(len(diurnal_mean_1_10)) # Always 144
+    
+    # 5. Guaranteed 24-Hour Ticks (Finding HH:00 in the full skeleton)
+    tick_indices = [i for i, t in enumerate(diurnal_mean_1_10.index) if t.minute == 0]
+    tick_labels = [diurnal_mean_1_10.index[i].strftime("%H:00") for i in tick_indices]
+
+           
+    fig, ax = plt.subplots(figsize=(15, 6))
+    
+    # 6. Plot (Using .values to handle the NaNs correctly)
+    ax.plot(x_vals_1_10, diurnal_mean_1_10.values, 
+            marker='o', markersize=4, linestyle='-', color='black', label='Mean $SO_2$')
+    ax.fill_between(
+        x_vals_1_10, 
+        diurnal_mean_1_10.values - diurnal_se_1_10.values,
+        diurnal_mean_1_10.values + diurnal_se_1_10.values,
+        color='green', alpha=0.3, label='±1 SE'
+    )
+    
+    # Display the combined figure
+    ax.set_xticks(tick_indices)
+    ax.set_xticklabels(tick_labels, rotation=45, fontsize=22)
+    plt.yticks(fontsize=22)
+
+    ax.set_title("10-minute Diurnal Cycle (SO2, DY195 whole cruise)", fontsize=20)
+    ax.set_xlabel("Hour of day (UTC-1)", fontsize=22)
+    ax.set_ylabel("$SO_2$ (ppt)", fontsize=22) 
+    ax.legend(fontsize=18)
+    
+    plt.tight_layout()
+    plt.show()
+    
+    ################################################
+                    #DOING MEDIANS
+    ################################################
+    grouped_hourly = SO2_in_sector_1_min_for_hour.groupby('hour')['amb_SO2_ppt']
+    diurnal_median_1_1 = grouped_hourly.median()
+    diurnal_se_1_1 = grouped_hourly.sem()
+    
+   
+    fig, SO2_1min_1hour = plt.subplots(figsize = (10,5))
+    x_values = diurnal_median_1_1.index#.astype(str)
+    SO2_1min_1hour.plot(x_values, diurnal_median_1_1.values, 
+                        marker='o', linestyle='-', color='black', label='Median $SO_2$')
+    # Plot shaded SE band
+    SO2_1min_1hour.fill_between(
+        x_values,
+        diurnal_median_1_1 - diurnal_se_1_1,
+        diurnal_median_1_1 + diurnal_se_1_1,
+        color='orange', alpha=0.3, label='±1 SE'
+    )
+    # Styling
+    plt.title("1hour diurnal of SO2 (DY195, whole cruise)", fontsize = 20)
+    plt.xlabel("Hour of day (UTC -1)", fontsize=22)
+    plt.ylabel("SO₂ (ppt)", fontsize=22)
+    plt.xticks(range(0, 24), fontsize=22)
+    plt.yticks(fontsize=22)
+    plt.legend(fontsize=22)
+    #import matplotlib as mpl
+    #mpl.rcParams['svg.fonttype'] = 'none'
+    plt.tight_layout()
+    
+    #10MIN BINS DIURNAL
+    SO2_in_sector_1_min_for_10_mins['time_of_day'] = SO2_in_sector_1_min_for_10_mins['Date_time'].dt.floor("10min").dt.time
+    
+    # 2. Filter the raw data (Removing the contamination)
+    mask_to_remove = (SO2_in_sector_1_min_for_10_mins['Date_time'].dt.hour == 7) & \
+                     (SO2_in_sector_1_min_for_10_mins['Date_time'].dt.minute <= 30)
+    df_filtered = SO2_in_sector_1_min_for_10_mins[~mask_to_remove].copy()
+    
+    # 3. Group the filtered data
+    grouped = df_filtered.groupby('time_of_day')['amb_SO2_ppt']
+    diurnal_median_1_10 = grouped.median(numeric_only = True)
+    diurnal_se_1_10 = grouped.sem(numeric_only = True)
+    
+    # --- THE FIX: Reindex to a full 24-hour day ---
+    # This ensures 07:00 exists in the index even if it has no data
+    full_day_range = pd.date_range("00:00", "23:50", freq="10min").time
+    diurnal_median_1_10 = diurnal_median_1_10.reindex(full_day_range)
+    diurnal_se_1_10 = diurnal_se_1_10.reindex(full_day_range)
+
+    # 4. Prepare Plotting Coordinates
+    x_vals_1_10 = np.arange(len(diurnal_mean_1_10)) # Always 144
+    
+    # 5. Guaranteed 24-Hour Ticks (Finding HH:00 in the full skeleton)
+    tick_indices = [i for i, t in enumerate(diurnal_median_1_10.index) if t.minute == 0]
+    tick_labels = [diurnal_median_1_10.index[i].strftime("%H:00") for i in tick_indices]
+
+           
+    fig, ax = plt.subplots(figsize=(15, 6))
+    
+    # 6. Plot (Using .values to handle the NaNs correctly)
+    ax.plot(x_vals_1_10, diurnal_median_1_10.values, 
+            marker='o', markersize=4, linestyle='-', color='black', label='Median $SO_2$')
+    ax.fill_between(
+        x_vals_1_10, 
+        diurnal_median_1_10.values - diurnal_se_1_10.values,
+        diurnal_median_1_10.values + diurnal_se_1_10.values,
+        color='orange', alpha=0.3, label='±1 SE'
+    )
+    
+    # Display the combined figure
+    ax.set_xticks(tick_indices)
+    ax.set_xticklabels(tick_labels, rotation=45, fontsize=22)
+    plt.yticks(fontsize=22)
+
+    ax.set_title("10-minute Diurnal Cycle (SO2, DY195 whole cruise)", fontsize=20)
+    ax.set_xlabel("Hour of day (UTC-1)", fontsize=22)
+    ax.set_ylabel("$SO_2$ (ppt)", fontsize=22) 
+    ax.legend(fontsize=18)
+    
+    plt.tight_layout()
+    plt.show()    
+    
+    
 #need baseline flags
 #need wind direction?
 #need irradiance?
 #need the dirunals aswell!  
    
+def allan_variance_calculator(data, channels, start_time, end_time):
+    import allantools
+    start_time = pd.to_datetime(start_time)
+    end_time = pd.to_datetime(end_time)
+    mask = (data["Date_time"] >= start_time) & (data["Date_time"] <= end_time) 
+    data = data[mask]
+    for channel in channels:
+    # plot Allan deviation
+        fig, avar = plt.subplots()
+        # defines the total averaging time duration displayed and the number of points for which to compute the statistic
+        #logx = np.logspace(np.log(0.1), np.log(15), 2000)#shorter time base shown
+        logx = np.logspace(np.log(0.1), np.log(30), 5000)#longer time base shown
+        (t1, ad1, ade1, adn1) = allantools.oadev(np.array(data[f'{channel}_diff_cts_ref_norm']), rate=10, data_type="freq", taus=logx) # rate = frequency rate (10 Hz)
+        avar.plot(t1, ad1, color='mediumblue')
+        avar.set_yscale('log') # changes to log scale
+        avar.set_xscale('log') # ""
+        avar.set_ylabel("\u00B1 1\u03C3 SO$_2$ Mixing Ratio (ppt)", fontsize=20)
+        avar.set_xlabel("Averaging Time (seconds)", fontsize=20)
+        avar.tick_params(axis='both', labelsize=20)
     
+        # generate x axis values between 0.1 and 500 (defines the total averaging time duration for the Poisson limit)
+        x_arr = np.arange(0.1, 500)
+        poisson = ad1[0] / np.sqrt(10 * x_arr) # calculate Poisson limit
+        avar.plot(x_arr, poisson, linestyle='dashed') # plot Poisson limit
+        avar.legend(['Allan variance', 'Poisson limit'], fontsize=20)
     
+        # annote plot with 1 sigma precision at 1 second averaging time (check that t1[9] is 1 second)
+        avar.annotate('1 second (1\u03C3) precision = %.0f ppt' % ad1[9], xycoords='axes fraction', xy=(0.05,0.1), fontsize=20)
     
+        print("One second precision =", ad1[9],"ppt")
+        print("Ten second precision =", ad1[99],"ppt")
+        
+    return data
     
     
     

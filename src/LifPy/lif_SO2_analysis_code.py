@@ -63,14 +63,17 @@ plt.tick_params(axis='both', which='major', labelsize=20)
 plt.legend()
 """
 df = pd.read_csv(r"E:\boat_SO2_data\corr flow\1min avg\1 min time sep\v1_DY195_data.txt")
+processed_data_dir = (r"C:\Users\Eve\Documents\Year 3\DATA_ANALYSIS\DY195\2026_03_20")
+ppt_data = lif.join_txt(processed_data_dir, campaign = "DY195")
+
 
 #######------------------------------------------########
 #SAVING DATA WHICH STILL HAS THE SPIKES WITHIN IT
 #######------------------------------------------########
-processed_data_dir = (r"E:\zeroboattests\using a imls for the zero")
+processed_data_dir = (r"C:\Users\Eve\Documents\Year 3\DATA_ANALYSIS\DY195\2026_03_20")
 #ppt_data = lif.join_txt(processed_data_dir, campaign = "DY195")
 SO2_data = lif.SO2_plot_data(processed_data_dir,
-                filename = "SO2_data_DY195_07-18_interp_c_k1_zero_imls_removal_v1_1min_avg_20250204", 
+                filename = "v1_DY195_data", 
                 campaign = "DY195", version = "v1")
 
 SO2_data_spikes = lif.DY195_flagged_periods_for_keeping_spikes(interuptions_csv_path, SO2_data)
@@ -95,11 +98,22 @@ underway_data = lif.load_ship_track(underway_file_path, filtered_DY195_SO2_data)
 
 SO2_1min_in_sector = lif.DY195_in_sector(underway_data, filtered_DY195_SO2_data)
 SO2_restart_removed = lif.restart_removed(SO2_1min_in_sector)
-filename = "SO2_1min_avg_in_sector_interuptions_removed_v1_20260123"
+filename = "SO2_1min_avg_in_sector_interuptions_removed_v1_20260320"
 lif.save_to_csv(
     processed_data_dir, filename, SO2_restart_removed
     )
+data = pd.read_csv(r"C:\Users\Eve\Documents\Year 3\DATA_ANALYSIS\DY195\2026_03_20\SO2_1min_avg_in_sector_interuptions_removed_v1_20260320.txt")
 #now have filtered 1 min data. THEN we can do the resample to 5min
+data["Date_time"] = pd.to_datetime(data["Date_time"])
+
+fig, i = plt.subplots(1,1)
+i.plot(data["Date_time"], data["amb_SO2_ppt"])
+plt.ylabel("SO2 (ppt)", fontsize = 20)
+plt.xlabel("Datetime (UTC)", fontsize = 20)
+plt.title("1min averaged SO2 during DY195, interuptions removed, in sector", fontsize = 20)
+plt.xticks(fontsize = 20)
+plt.yticks(fontsize = 20)
+
 SO2_restart_removed = SO2_data
 lif.DY195_in_sector_diurnal_1min(SO2_restart_removed)
 #getting it as a 5 min averaged plot!
@@ -212,10 +226,15 @@ print(Flows["Cell_Flow"], Flows["ZA_SB_MFC_Read"], Flows["Cal_ZA_MFC_Read"])
 
 
 #MACE HEAD
-processed_data_dir = (r"E:\LOKISO2\MACE_HEAD\data\v1_processed_data_file")
+processed_data_dir = (r"C:\Users\Eve\Documents\Year 3\DATA_ANALYSIS\MACE HEAD")
 SO2_data = lif.SO2_plot_data(processed_data_dir,
-                    filename, 
-                    campaign = "MACE_HEAD", version = "v1")   
+                    filename = "MH_data_v1_first_half_2026_03_02", 
+                    campaign = "MACE_HEAD", version = "v1") 
+MH_interuptions_path = r"E:\LOKISO2\MACE HEAD\MACE_HEAD_INTERRUPTIONS_FLAGGER.csv" 
+d = lif.MH_flagged_periods(MH_interuptions_path, SO2_data)
+
+d.to_csv("MH_data_v1_first_half.csv")
+
 
 # want the baseline data to be imported in and used
 #using column 10
