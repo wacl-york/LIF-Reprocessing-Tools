@@ -543,8 +543,16 @@ def deinterleave_bin_data(bin_data, channel_format, channel_count,
                 bin_data_dict[channel + '_lin'] \
                     / (bin_data_dict['laser_pwr_PT0'])
     #added this in to try and see if we can get to the positive time values! 21/01/2026
-    #if 'time_ms' in bin_data_dict:
-       # bin_data_dict['time_ms'] = bin_data_dict['time_ms'].astype(np.int64) % 4294967296
+    #THIS IS ONLY FOR THE NOV-JAN TAS DATA
+    bin_data_dict['time_ms'] = bin_data_dict['time_ms'].astype(np.int64)# % 4294967296
+    #if 'time_ms' in bin_data_dict < 0 :
+     #   bin_data_dict["time_ms"] = bin_data_dict['time_ms'] + 4294967296
+    #as it is a int64 it needs to be a mask
+    mask = bin_data_dict['time_ms'] < 0
+    bin_data_dict['time_ms'][mask] += 4294967296
+    
+    #do i need to make it back to what it was before
+
     return bin_data_dict
 
 
@@ -1654,8 +1662,8 @@ def cell_flow_adjusted_TAS(cts_data):
     cts_data["Date_time"] = pd.to_datetime(cts_data["Date_time"])
     cts_data_o["Date_time"] = pd.to_datetime(cts_data_o["Date_time"])
     
-    d = cts_data[15000:16000]
-    w = cts_data_o[15000:16000]
+    d = cts_data[15000:20000]
+    w = cts_data_o[15000:20000]
     
     fig, flow_corr= plt.subplots(1,1)
     flow_corr.plot(d["Date_time"], d["Cell_Flow"], color = "green", label = "Cell_Flow_uncorrected")
@@ -2124,7 +2132,7 @@ def set_flags_0403_TEST(data, ref_cts_diff_limit, pre_PF, post_PF, start_date, e
                     pre_TS = 10
                     post_TS = 10
            
-            elif campagin_list == "TASMANIA": #and data.iloc[index]['Task'] == 0:
+            elif campagin_list == "TASMANIA_JAN_MAR": #and data.iloc[index]['Task'] == 0:
                 if data.iloc[index]['Task'] == 1 and data.iloc[index-1]['Task'] == 4:
                     #taking off 100 either side of this
                     pre_TS = 500 #trimming the zero 
@@ -2222,6 +2230,42 @@ def set_flags_0403_TEST(data, ref_cts_diff_limit, pre_PF, post_PF, start_date, e
                     pre_TS = 1
                     post_TS = 2
             
+            elif campagin_list == "TASMANIA_NOV_JAN": #and data.iloc[index]['Task'] == 0:
+                if data.iloc[index]['Task'] == 2 and data.iloc[index-1]['Task'] == 0:
+                    #taking off 100 either side of this
+                    pre_TS = 100 #trimming the zero 
+                    post_TS = 10 #taking out of 1 
+                    #zero
+                elif data.iloc[index]['Task'] == 0 and data.iloc[index-1]['Task'] == 4 and data.iloc[index-1]['Cal_SO2_MFC_Read'] >= 4.1:
+                    pre_TS = 1075# eating the zero
+                    post_TS = 800 # eating the amb
+                elif data.iloc[index]['Task'] == 0 and data.iloc[index-1]['Task'] == 2:
+                    pre_TS = 2200 #taking it out of the ambient
+                    post_TS = 10 #trim zero
+                    #ambient
+                elif data.iloc[index]['Task'] == 3 and data.iloc[index-1]['Task'] == 0:
+                    pre_TS = 10 #trim zero
+                    post_TS = 10 #trim the ambient
+                   #
+                elif data.iloc[index]['Task'] == 4 and data.iloc[index-1]['Task'] == 3:
+                    pre_TS = 10 # eating the scan
+                    post_TS = 100#eating zero
+                    #
+                elif data.iloc[index]['Task'] == 0 and data.iloc[index-1]['Task'] == 4:
+                    pre_TS = 100# eating the zero
+                    post_TS = 100 # eating the amb
+                   #
+                elif data.iloc[index]['Task'] == 4 and data.iloc[index-1]['Task'] == 0:
+                    pre_TS = 50
+                    post_TS = 50 #
+                    #
+                elif data.iloc[index]['Task'] == 3 and data.iloc[index-1]['Task'] == 4:
+                    pre_TS = 10 # eating the zero
+                    post_TS = 10 #eating scan
+                else:
+                    #data.iloc[index]['Task'] == 0 & data.iloc[index-1]['Task'] == 1:
+                    pre_TS = 10
+                    post_TS = 10
             
             start = max(0, index - pre_TS)
             #still just taking values off from before the change. I want it ot take from after the tas change
@@ -2277,7 +2321,7 @@ def set_flags_0403_TEST(data, ref_cts_diff_limit, pre_PF, post_PF, start_date, e
         data_clean_pre_calo = data_org[clean_mask_pre_calo]
         
         #actial pltos needed with time on
-        fig, r = plt.subplots(5, 1, sharex=True, figsize=(12, 8))
+        fig, r = plt.subplots(7, 1, sharex=True, figsize=(12, 8))
         fig.suptitle("Task 0: Ambient (Original vs Cuts)", fontsize=16)
         r[0].plot(data_org["Date_time"], data_org["sig_diff_cts_ref_norm"], 'g', label="Original data")
         r[0].set_ylim(-0.03, 0.25)
@@ -2302,6 +2346,10 @@ def set_flags_0403_TEST(data, ref_cts_diff_limit, pre_PF, post_PF, start_date, e
         r[3].set_ylim(-0.03, 0.25)
         
         r[4].plot(data_cleano["Date_time"], data_cleano["Task"], color = "red")
+        
+        r[5].plot(data_cleano["Date_time"], data_cleano["Cal_SO2_MFC_Read"], color = "red")
+        
+        r[6].plot(data_cleano["Date_time"], data_cleano['Cal_SO2_MFC_set'], color = "red")
         #for ax in r: 
             #ax.set_ylim(-0.03, 0.15)
         for ax in r: 
@@ -2341,6 +2389,255 @@ def set_flags_0403_TEST(data, ref_cts_diff_limit, pre_PF, post_PF, start_date, e
         
     print("I have set the flags!")
     return data
+def zero_correct_MAR(data, channels, removal_zero, plot=False):
+    """
+    Values needed for the zero correct by avgs!
+  #for the ambient part of the cruise!
+        ("2025-06-18 17:00:00", "2025-06-20 15:00:00"),
+        ("2025-06-20 15:00:00", "2025-06-20 22:00:00"),
+        ("2025-06-20 22:00:00", "2025-06-22 08:00:00"),#08:00:00
+        #("2025-06-21 15:00:00", "2025-06-22 07:20:00"),
+        ("2025-06-22 08:00:00", "2025-06-23 09:49:00"),
+        ("2025-06-23 09:49:00", "2025-06-23 17:51:00"),
+        ("2025-06-23 17:51:00", "2025-06-24 08:00:00"),
+        ("2025-06-24 08:00:00", "2025-06-24 15:15:00"),
+        ("2025-06-24 15:15:00", "2025-06-25 08:00:00"),
+        ("2025-06-25 08:00:00", "2025-06-25 16:00:00")]
+
+    
+    """
+    print('\nCalculating zero correction')
+    # use a mask to select all of the zero data associated with task 4
+    # set the index to Date_time for averaging later
+    cts_data_zero = data.copy()
+    start_of_zero = (cts_data_zero['Task'] == 4) & (cts_data_zero['Task'].shift(1) != 4)
+    cts_data_zero['zero_number'] = start_of_zero.cumsum()
+    cts_data_zero = cts_data_zero[(cts_data_zero['Task']==4) & (cts_data_zero['Peak_find_flag']==0)]
+    grouped_zeros = cts_data_zero.groupby('zero_number')
+    
+    if 'sig_B' in channels:
+        
+        cts_data_zero['sig_B_diff_cts_ref_norm'] = np.where(
+            (cts_data_zero['BLC_0_flag'] == 1.0) & (cts_data_zero['BLC_1_flag'] == 1.0)
+            , cts_data_zero['sig_B_diff_cts_ref_norm']
+            , np.nan
+            )
+    
+    for channel in channels:
+
+        column_name = f'{channel}_diff_cts_ref_norm'
+        
+        zero_stats = grouped_zeros.agg({
+            column_name: ['mean', 'std', 'count'],
+            'Date_time': 'mean'
+            }).dropna()
+        
+        # Flattening the MultiIndex columns
+        zero_stats.columns = ['_'.join(col).strip() for col in zero_stats.columns.values]
+        
+        # Renaming for clarity
+        zero_stats = zero_stats.rename(columns={
+            'Date_time_mean': 'zero_midpoint'
+        })
+        
+        mean_zero = zero_stats[f'{column_name}_mean'].mean()
+        std_zero = zero_stats[f'{column_name}_mean'].std()
+        lower_limit = mean_zero - 3*std_zero
+        upper_limit = mean_zero + 3*std_zero
+        spike_mask = ((zero_stats[f'{column_name}_mean'] > lower_limit)
+            & (zero_stats[f'{column_name}_mean'] < upper_limit))
+        
+        zero_stats = zero_stats[spike_mask]
+        zero_stats['zero_midpoint'] =pd.to_datetime(zero_stats['zero_midpoint'])
+        removal_zero = removal_zero
+        
+        #09/02/2026: to remove the spikes from the 02-06/06/2025 DY195 data, will need to remove this 
+        removal_zero = removal_zero
+        if removal_zero is True:
+            
+            start_date = '2025-06-05 08:55:00'
+            end_date = '2025-06-05 12:00:00'
+            
+            start_date_x = '2025-06-06 08:59:00'
+            end_date_x = '2025-06-06 09:02:00'
+            
+            start_date_z = '2025-06-09 12:00:00'
+            end_date_z = '2025-06-09 15:20:00'
+            
+            start_date_t = '2025-06-11 20:15:00'
+            end_date_t = '2025-06-11 20:20:00'
+            
+            start_date_w = '2025-06-13 09:10:00'
+            end_date_w = '2025-06-13 09:15:00'
+            
+            start_date_q = '2025-06-11 19:15:00'
+            end_date_q = '2025-06-11 20:25:00'
+            
+            start_date_a = '2025-06-16 18:33:00'
+            end_date_a = '2025-06-16 18:34:00'
+            
+            start_date_b = '2025-06-20 21:52:00'
+            end_date_b = '2025-06-20 22:02:00'
+            
+            start_date_c = '2025-06-21 12:00:00'
+            end_date_c = '2025-06-21 14:00:00'
+            
+            start_date_f = '2025-06-23 17:50:00'
+            end_date_f = '2025-06-24 10:00:00'
+            
+            start_date_d = '2025-06-24 09:00:00'
+            end_date_d = '2025-06-24 09:15:00'
+            
+            start_date_e = '2025-06-24 15:00:00'
+            end_date_e = '2025-06-24 18:00:00'
+            
+            mask = (
+                ((zero_stats['zero_midpoint'] >= start_date) & (zero_stats['zero_midpoint'] <= end_date))|
+                    ((zero_stats['zero_midpoint'] >= start_date_x) & (zero_stats['zero_midpoint'] <= end_date_x))|
+                    ((zero_stats['zero_midpoint'] >= start_date_t) & (zero_stats['zero_midpoint'] <= end_date_t))|
+                    ((zero_stats['zero_midpoint'] >= start_date_w) & (zero_stats['zero_midpoint'] <= end_date_w))|
+                    ((zero_stats['zero_midpoint'] >= start_date_q) & (zero_stats['zero_midpoint'] <= end_date_q))|
+                    ((zero_stats['zero_midpoint'] >= start_date_a) & (zero_stats['zero_midpoint'] <= end_date_a))|
+                    #((zero_stats['zero_midpoint'] >= start_date_z) & (zero_stats['zero_midpoint'] <= end_date_z))|
+                    ((zero_stats['zero_midpoint'] >= start_date_b) & (zero_stats['zero_midpoint'] <= end_date_b))|
+                    ((zero_stats['zero_midpoint'] >= start_date_c) & (zero_stats['zero_midpoint'] <= end_date_c))|
+                    ((zero_stats['zero_midpoint'] >= start_date_d) & (zero_stats['zero_midpoint'] <= end_date_d))|
+                    ((zero_stats['zero_midpoint'] >= start_date_e) & (zero_stats['zero_midpoint'] <= end_date_e))|
+                    ((zero_stats['zero_midpoint'] >= start_date_f) & (zero_stats['zero_midpoint'] <= end_date_f))
+                    )
+            mask = (
+                ((zero_stats['zero_midpoint'] >= start_date) & (zero_stats['zero_midpoint'] <= end_date))|
+                    ((zero_stats['zero_midpoint'] >= start_date_x) & (zero_stats['zero_midpoint'] <= end_date_x))
+                    )
+            zero_stats=zero_stats[~mask]
+        
+        mean_zero_spikes_removed = zero_stats[f'{column_name}_mean'].mean()
+        print(f'\n{channel}:\nmean zero before spike removal = {mean_zero}'
+              f'\nmean zero after spike removal = {mean_zero_spikes_removed}')
+        # Define the filename (optionally include the channel name to avoid overwriting)
+        stats_csv_name = f"{channel}_zero_statistics.csv"
+        
+        # Save the zero_stats DataFrame to CSV
+        zero_stats.to_csv(stats_csv_name, index=False)
+        
+        print(f"Successfully saved stats for {channel} to {stats_csv_name}")
+        """   
+        mean_correction = mean_zero_spikes_removed # The overall mean after spike removal
+        correction_values = np.full(len(data), mean_correction)
+        
+        data[f'{channel}_zero_offset'] = correction_values
+        data[f'{channel}_diff_cts_ref_norm_zero_corr'] = data[column_name] - correction_values
+        print(f'zero correction applied to {channel}')
+        """
+        final_corrected_data = data.copy()
+        final_corrected_data[f'{channel}_zero_offset'] = np.nan
+        final_corrected_data[f'{channel}_diff_cts_ref_norm_zero_corr'] = np.nan
+        
+        observation_windows =[("2025-03-05 09:00:00", "2025-03-06 21:00:00"),
+        ("2025-03-06 11:30:00", "2025-03-06 19:30:00"),
+        ("2025-03-06 19:30:00", "2025-03-07 10:40:00"),
+        ("2025-03-07 10:50:00", "2025-03-08 11:30:00"),
+        ("2025-03-08 11:30:00", "2025-03-09 09:45:00"),
+        ("2025-03-09 09:45:00", "2025-03-09 12:30:00"),
+        ("2025-03-09 12:30:00", "2025-03-10 01:15:00"),
+        #("2025-03-10 01:15:00", "2025-03-10 09:30:00"),
+        ("2025-03-10 09:30:00", "2025-03-11 08:40:00")]
+        corrected_segments = []
+    
+        for start, end in observation_windows:
+            mask_window = (final_corrected_data.index >= start) & (final_corrected_data.index <= end)
+            z_mask = (zero_stats['zero_midpoint'] >= start) & (zero_stats['zero_midpoint'] <= end)
+            local_mean = zero_stats.loc[z_mask, f'{column_name}_mean'].mean()
+            print(start, end, local_mean)
+            if not pd.isna(local_mean):
+                final_corrected_data.loc[mask_window, f'{channel}_zero_offset'] = local_mean
+        #######################################################
+                            #applying linear!
+        #######################################################
+        
+        linear_fit_windows = [("2025-03-10 01:15:00", "2025-03-10 09:30:00") 
+        #("2025-06-13 14:45:00", "2025-06-20 08:00:00"),
+        #("2025-06-20 08:00:00", "2025-06-22 11:00:00") 
+        ]
+        for start, end in linear_fit_windows:
+            start, end = pd.to_datetime(start), pd.to_datetime(end)
+            
+            # 1. Filter calibration points for this specific window
+            cal_mask = (zero_stats['zero_midpoint'] >= start) & (zero_stats['zero_midpoint'] <= end)
+            
+            # Convert timestamps to numeric values (seconds) so we can do math on them
+            x_cal = zero_stats.loc[cal_mask, 'zero_midpoint'].values.astype(np.int64) // 10**9
+            y_cal = zero_stats.loc[cal_mask, [f'{column_name}_mean']].values
+            
+            if len(x_cal) >= 2:  # Need at least two points for a line
+                # 2. Perform the linear fit: returns [slope, intercept]
+                slope_fit, intercept_fit = np.polyfit(x_cal, y_cal, 1)
+                
+                # 3. Apply to ambient data timestamps
+                data_mask = (final_corrected_data['Date_time'] >= start) & (final_corrected_data['Date_time'] <= end)
+                target_x = final_corrected_data.loc[data_mask, 'Date_time'].values.astype(np.int64) // 10**9
+                
+                # Calculate the "moving" cal factor: y = mx + c
+                final_corrected_data.loc[data_mask, f'{channel}_zero_offset'] = (slope_fit * target_x) + intercept_fit
+                # --- LOOP 3: Interpolated Windows (Spline) ---
+        
+        # FINAL CALCULATION for this channel
+        final_corrected_data[f'{channel}_diff_cts_ref_norm_zero_corr'] = (
+            final_corrected_data[column_name] - final_corrected_data[f'{channel}_zero_offset']
+        )
+
+        #print(f"Total rows in output: {len(data)}")
+        #print("--- DATA AUDIT ---")
+        #print(f"Total Rows: {len(final_corrected_data)}")
+        #print(f"Index Start: {final_corrected_data.index.min()}")
+        #print(f"Index End:   {final_corrected_data.index.max()}")
+        #print(f"Rows after June 21st: {len(final_corrected_data[final_corrected_data.index > '2025-06-21'])}")
+        #print("--- Column Names ---")
+        #print(final_corrected_data.columns.tolist())
+        #print("\n--- Data Types and Non-Null Counts ---")
+        #print(final_corrected_data.info())
+        #print("\n--- First 5 Rows ---")
+        #print(final_corrected_data.head())
+        #print("\n--- Last 5 Rows ---")
+        #print(final_corrected_data.tail())
+        #print("\n--- Snapshot of June 24th ---")
+        # This looks at a 10-row slice from the 24th
+        #print(final_corrected_data.loc['2025-06-24 12:00:00':'2025-06-24 12:00:01'])
+                
+        
+        
+        
+        
+        if plot:
+            
+            fig, ax = plt.subplots( 2, 1, figsize=(12, 8))
+            
+            ax[0].errorbar(zero_stats['zero_midpoint']
+                             , zero_stats[f'{column_name}_mean']
+                             , yerr=zero_stats[f'{column_name}_std']
+                             , linestyle=''
+                             , marker='o'
+                             , markersize=2
+                             , capsize=2
+                             , label='zero measurement means, +/- 1std'
+                             )
+            #ax.plot(cts_data_zero['Date_time'], cts_data_zero[column_name], label='raw zero data')
+            ax[0].plot(final_corrected_data['Date_time'], final_corrected_data[f'{channel}_zero_offset'], label='zero correction')
+            ax[0].set_xlabel('Date_time')
+            ax[0].set_ylabel(column_name)
+            ax[0].set_title(f'{channel} zero correction')
+            ax[0].legend()
+            
+            ax[1].hist(zero_stats[f'{column_name}_mean'], bins=50)
+            ax[1].set_xlabel(column_name)
+            
+            plt.show()
+    return final_corrected_data.reset_index(drop=True)
+
+
+
+
+
     
 def zero_correct(data, channels, removal_zero, plot=False):
     """
@@ -2441,7 +2738,8 @@ def zero_correct(data, channels, removal_zero, plot=False):
         ##############################################################
                         #AVERAGE OVER THESE PERIODS!
         ##############################################################
-        observation_windows =[("2025-06-02 00:00:00", "2025-06-02 18:50:00"),
+        observation_windows =[("2024-11-14", "2025-01-01"),
+        ("2025-06-02 00:00:00", "2025-06-02 18:50:00"),
         ("2025-06-02 18:50:00", "2025-06-03 15:50:00"),
         ("2025-06-03 15:50:00", "2025-06-04 08:00:00"),
         ("2025-06-04 08:00:00", "2025-06-04 18:30:00"),
@@ -2621,7 +2919,197 @@ def zero_correct(data, channels, removal_zero, plot=False):
             
             plt.show()
     return final_corrected_data.reset_index(drop=True)
+from scipy.interpolate import make_interp_spline
 
+def zero_correct_p(data, channels, removal_zero, plot=False):
+
+    print('\nCalculating zero correction')
+    # use a mask to select all of the zero data associated with task 4
+    # set the index to Date_time for averaging later
+    cts_data_zero = data.copy()
+    start_of_zero = (cts_data_zero['Task'] == 4) & (cts_data_zero['Task'].shift(1) != 4)
+    cts_data_zero['zero_number'] = start_of_zero.cumsum()
+    cts_data_zero = cts_data_zero[(cts_data_zero['Task']==4) & (cts_data_zero['Peak_find_flag']==0)]
+    grouped_zeros = cts_data_zero.groupby('zero_number')
+    
+    if 'sig_B' in channels:
+        
+        cts_data_zero['sig_B_diff_cts_ref_norm'] = np.where(
+            (cts_data_zero['BLC_0_flag'] == 1.0) & (cts_data_zero['BLC_1_flag'] == 1.0)
+            , cts_data_zero['sig_B_diff_cts_ref_norm']
+            , np.nan
+            )
+    
+    for channel in channels:
+
+        column_name = f'{channel}_diff_cts_ref_norm'
+        
+        zero_stats = grouped_zeros.agg({
+            column_name: ['mean', 'std', 'count'],
+            'Date_time': 'mean'
+            }).dropna()
+        
+        # Flattening the MultiIndex columns
+        zero_stats.columns = ['_'.join(col).strip() for col in zero_stats.columns.values]
+        
+        # Renaming for clarity
+        zero_stats = zero_stats.rename(columns={
+            'Date_time_mean': 'zero_midpoint'
+        })
+        
+        mean_zero = zero_stats[f'{column_name}_mean'].mean()
+        std_zero = zero_stats[f'{column_name}_mean'].std()
+        lower_limit = mean_zero - 3*std_zero
+        upper_limit = mean_zero + 3*std_zero
+        spike_mask = ((zero_stats[f'{column_name}_mean'] > lower_limit)
+            & (zero_stats[f'{column_name}_mean'] < upper_limit))
+        
+        zero_stats = zero_stats[spike_mask]
+        zero_stats['zero_midpoint'] =pd.to_datetime(zero_stats['zero_midpoint'])
+        removal_zero = removal_zero
+        
+        #09/02/2026: to remove the spikes from the 02-06/06/2025 DY195 data, will need to remove this 
+        removal_zero = removal_zero
+        if removal_zero is True:
+            
+            start_date = '2025-06-05 08:55:00'
+            end_date = '2025-06-05 12:00:00'
+            
+            start_date_x = '2025-06-06 08:59:00'
+            end_date_x = '2025-06-06 09:02:00'
+            
+            start_date_z = '2025-06-09 12:00:00'
+            end_date_z = '2025-06-09 15:20:00'
+            
+            start_date_t = '2025-06-11 20:15:00'
+            end_date_t = '2025-06-11 20:20:00'
+            
+            start_date_w = '2025-06-13 09:10:00'
+            end_date_w = '2025-06-13 09:15:00'
+            
+            start_date_q = '2025-06-11 19:15:00'
+            end_date_q = '2025-06-11 20:25:00'
+            
+            start_date_a = '2025-06-16 18:33:00'
+            end_date_a = '2025-06-16 18:34:00'
+            
+            start_date_b = '2025-06-20 21:52:00'
+            end_date_b = '2025-06-20 22:02:00'
+            
+            start_date_c = '2025-06-21 12:00:00'
+            end_date_c = '2025-06-21 14:00:00'
+            
+            #start_date_f = '2025-06-23 17:50:00'#'2025-06-23 17:50:00'
+            #end_date_f = '2025-06-24 10:00:00'
+            
+            start_date_d = '2025-06-24 09:00:00'
+            end_date_d = '2025-06-24 09:15:00'
+            
+            start_date_e = '2025-06-24 15:00:00'
+            end_date_e = '2025-06-24 18:00:00'
+            
+            start_date_f = '2025-06-23 10:00:00'#'2025-06-23 17:50:00'
+            end_date_f = '2025-06-23 17:45:00'
+            
+            mask = (
+                ((zero_stats['zero_midpoint'] >= start_date) & (zero_stats['zero_midpoint'] <= end_date))|
+                    ((zero_stats['zero_midpoint'] >= start_date_x) & (zero_stats['zero_midpoint'] <= end_date_x))|
+                    ((zero_stats['zero_midpoint'] >= start_date_t) & (zero_stats['zero_midpoint'] <= end_date_t))|
+                    ((zero_stats['zero_midpoint'] >= start_date_w) & (zero_stats['zero_midpoint'] <= end_date_w))|
+                    ((zero_stats['zero_midpoint'] >= start_date_q) & (zero_stats['zero_midpoint'] <= end_date_q))|
+                    ((zero_stats['zero_midpoint'] >= start_date_a) & (zero_stats['zero_midpoint'] <= end_date_a))|
+                    #((zero_stats['zero_midpoint'] >= start_date_z) & (zero_stats['zero_midpoint'] <= end_date_z))|
+                    ((zero_stats['zero_midpoint'] >= start_date_b) & (zero_stats['zero_midpoint'] <= end_date_b))|
+                    ((zero_stats['zero_midpoint'] >= start_date_c) & (zero_stats['zero_midpoint'] <= end_date_c))|
+                    ((zero_stats['zero_midpoint'] >= start_date_d) & (zero_stats['zero_midpoint'] <= end_date_d))|
+                    ((zero_stats['zero_midpoint'] >= start_date_e) & (zero_stats['zero_midpoint'] <= end_date_e))|
+                    ((zero_stats['zero_midpoint'] >= start_date_f) & (zero_stats['zero_midpoint'] <= end_date_f))
+                    )
+            zero_stats=zero_stats[~mask]
+        
+        mean_zero_spikes_removed = zero_stats[f'{column_name}_mean'].mean()
+        print(f'\n{channel}:\nmean zero before spike removal = {mean_zero}'
+              f'\nmean zero after spike removal = {mean_zero_spikes_removed}')
+        # Define the filename (optionally include the channel name to avoid overwriting)
+        stats_csv_name = f"{channel}_zero_statistics.csv"
+        
+        # Save the zero_stats DataFrame to CSV
+        zero_stats.to_csv(stats_csv_name, index=False)
+        print(f"Successfully saved stats for {channel} to {stats_csv_name}")
+        final_corrected_data = data.copy()
+        final_corrected_data[f'{channel}_zero_offset'] = np.nan
+        final_corrected_data[f'{channel}_diff_cts_ref_norm_zero_corr'] = np.nan
+        
+        observation_windows =[("2025-06-02 00:00:00", "2025-06-02 18:50:00"),
+        ("2025-06-02 18:50:00", "2025-06-03 15:50:00"),
+        ("2025-06-03 15:50:00", "2025-06-04 08:00:00"),
+        ("2025-06-04 08:00:00", "2025-06-04 18:30:00"),
+        ("2025-06-04 18:30:00", "2025-06-05 09:30:00"),
+        ("2025-06-05 09:30:00", "2025-06-06 12:00:00"),
+        ("2025-06-06 15:30:00", "2025-06-07 12:30:00"),#("2025-06-07 08:00:00", "2025-06-09 11:35:00")
+        ("2025-06-07 12:30:00", "2025-06-08 09:00:00"),
+        ("2025-06-08 09:00:00", "2025-06-09 12:35:00"),
+        ("2025-06-09 12:35:00", "2025-06-09 14:40:00"),
+        ("2025-06-09 14:40:00", "2025-06-12 08:00:00"),
+        ("2025-06-12 08:00:00", "2025-06-16 20:00:00"),
+        ("2025-06-16 20:00:00", "2025-06-18 08:00:00"),
+        ("2025-06-18 08:00:00", "2025-06-18 17:48:16"),
+        ("2025-06-18 17:00:00", "2025-06-20 15:00:00"),
+        ("2025-06-20 15:00:00", "2025-06-20 22:00:00"),
+        ("2025-06-20 22:00:00", "2025-06-22 08:00:00"),
+        ("2025-06-22 08:00:00", "2025-06-24 08:00:00"),
+        ("2025-06-24 08:00:00", "2025-06-24 15:15:00"),
+        ("2025-06-25 08:00:00", "2025-06-25 16:00:00")]#08:00:00
+        #("2025-06-21 15:00:00", "2025-06-22 07:20:00"),
+        #("2025-06-22 08:00:00", "2025-06-23 09:49:00"),
+        #("2025-06-22 08:00:00", "2025-06-24 08:00:00"),# mask here to then do the average of the period before to here.
+        #("2025-06-23 09:49:00", "2025-06-23 17:51:00"),
+        #("2025-06-23 17:51:00", "2025-06-24 08:00:00"),
+        #("2025-06-23 17:51:00", "2025-06-24 08:00:00"),
+        #("2025-06-24 08:00:00", "2025-06-24 15:15:00"),#leave this bit as it is!
+        #("2025-06-24 15:15:00", "2025-06-25 08:00:00"),
+        #("2025-06-25 08:00:00", "2025-06-25 16:00:00")]
+
+        for start, end in observation_windows:
+            mask_window = (final_corrected_data.index >= start) & (final_corrected_data.index <= end)
+            z_mask = (zero_stats['zero_midpoint'] >= start) & (zero_stats['zero_midpoint'] <= end)
+            local_mean = zero_stats.loc[z_mask, f'{column_name}_mean'].mean()
+            print(start, end, local_mean)
+            if not pd.isna(local_mean):
+                final_corrected_data.loc[mask_window, f'{channel}_zero_offset'] = local_mean
+        """
+        twenty_third_window = [('2025-06-23 09:49:00', '2025-06-23 17:51:00')]
+        
+        for start,end in twenty_third_window:
+            mask_windowq = (final_corrected_data.index >= start) & (final_corrected_data.index <= end)
+            #z_mask = (zero_stats['zero_midpoint'] >= start) & (zero_stats['zero_midpoint'] <= end)
+            mean_value = -0.0013064842679061512
+            final_corrected_data.loc[mask_windowq, f'{channel}_zero_offset' ] = mean_value
+        """
+                # --- LOOP 3: Interpolated Windows (Spline) ---
+        interp_windows = [ ("2025-06-06 19:15:00", "2025-06-07 08:00:00"),
+                           ("2025-06-09 18:00:00", "2025-06-10 10:00:00"),
+                          ("2025-06-12 10:00:00", "2025-06-13 00:00:00"), ("2025-06-14 03:00:00", "2025-06-14 07:10:00"),
+                          ("2025-06-14 19:00:00", "2025-06-15 08:00:00"), ("2025-06-02 18:50:00", "2025-06-03 15:50:00"),
+                          ("2025-06-04 18:30:00", "2025-06-05 09:30:00"), ("2025-06-24 15:15:00", "2025-06-25 08:00:00")]#
+            #('2025-06-18 08:00:00', '2025-06-18 17:48:16')]
+        for start, end in interp_windows:
+            mask_windowa = (final_corrected_data.index >= start) & (final_corrected_data.index <= end)
+            mask_to_fill = mask_windowa & (final_corrected_data[f'{channel}_zero_offset'].isna())
+    
+            if mask_to_fill.any():
+                x_pts = zero_stats['zero_midpoint'].values.astype(np.int64)
+                y_pts = zero_stats[f'{column_name}_mean'].values
+                spline = make_interp_spline(x_pts, y_pts, k=1)
+                
+                # 3. Apply only to the empty slots
+                target_x = final_corrected_data.loc[mask_to_fill].index.values.astype(np.int64)
+                final_corrected_data.loc[mask_to_fill, f'{channel}_zero_offset'] = spline(target_x)
+        
+                # FINAL CALCULATION for this channel
+        final_corrected_data[f'{channel}_diff_cts_ref_norm_zero_corr'] = (
+            final_corrected_data[column_name] - final_corrected_data[f'{channel}_zero_offset']
+        )
 
 
 def zero_correct_imls(data, channels, h_seconds=2400, plot=True):
@@ -4043,6 +4531,419 @@ def cal_single_point(data, channels, plot=False):
             plt.show()
 
     return data   
+def analyse_cals_N_J(data, data_dir, channels, molecule, cal_cylinder_conc
+                 , plot, save_csv, cal_task, threshold):
+
+    print('\nsearching dataset for calibration periods')
+
+    cts_data = data.copy()
+    
+    #back to the actual code!
+    flows = [column for column in cts_data.columns
+             if 'Flow' in column]
+    cts_data['total_flow'] = cts_data[flows].sum(axis=1)
+    
+    #cts_data['Cal_SO2_MFC_set'] = cts_data['Cal_SO2_MFC_set'].shift(-2500)
+    
+    
+    # Calculate the MR associated with the cal gas and flow
+    cts_data[f'{molecule}_mr'] = (
+        cts_data[f'Cal_{molecule}_MFC_Read'] / (cts_data['total_flow']
+        ) * cal_cylinder_conc)
+
+    # Isolate the columns of data required for the cal analysis
+    diff_cts_columns = [f'{channel}_diff_cts_ref_norm_zero_corr'
+                        for channel in channels]
+    additional_columns = ['Date_time', 'Task', 'lsr_pwr_mW',
+                          f'{molecule}_mr', f'Cal_{molecule}_MFC_Read',
+                          'ZA_SB_MFC_Read', f'Cal_{molecule}_MFC_set']
+    all_columns = diff_cts_columns + additional_columns
+    # Copy the dataframe containing only the columns of interest
+    cts_data = cts_data[all_columns].copy()
+
+    # Find start of calibration periods (Task 5 starts)
+    cts_data['start_of_cal'] = np.where(
+        (cts_data['Task'] == cal_task) & (cts_data['Task'].shift(1) != cal_task)
+        , 1
+        , 0
+        )
+    # Mask for calibration periods with cal SB on / off
+    cal_task_mask = ((cts_data['Task'] == cal_task))# &
+                     #(cts_data['Cal_SB_Vl'] <= 0.1))
+                     #!!!!!!!!!!!!!!!!!!!!!!!
+    cts_data = cts_data[cal_task_mask]
+    # Cumulatively sum the start_of_cal flags to number the calibrations
+    cts_data['cal_number'] = cts_data['start_of_cal'].cumsum()
+
+    num_cals = cts_data['cal_number'].max()
+    print(f'\n{num_cals} calibrations found')
+
+    # --- PLOTTING SETUP ---
+    if plot:
+        ROWS = 4#4
+        COLS = 8#8
+        MAX_PLOTS = ROWS * COLS
+        plot_counter = 0
+        fig = None
+        ax = None
+        fig_index = 1
+    # ----------------------
+
+    fieldnames = ['cal_number', 'cal_start_date_time', 'avg_lsr_pwr', 'slope',
+                  'intercept', 'R2', 'slope_std_err']
+
+    for channel in channels:
+
+        print(f'\nAnalysing cals in {channel}:')
+
+        if save_csv:
+            file_path = os.path.join(data_dir, f'{channel}_cal_data.txt')
+            # Open the file for writing (or append if it exists)
+            txtfile = open(file_path, 'w', newline='')
+            writer = csv.DictWriter(txtfile, fieldnames=fieldnames)
+
+            writer.writeheader()
+            
+        else:
+            # Create dummy objects if not making CSV
+            writer = None
+            txtfile = None
+
+        try:
+            cts_data_cal = cts_data.copy()
+            cals = cts_data_cal.groupby('cal_number')
+
+            for cal_num, cal_df in cals:
+
+                # --- PLOTTING LOGIC START ---
+                if plot:
+                    if plot_counter % MAX_PLOTS == 0:
+                        if fig is not None:
+                            plt.tight_layout()
+                            #21/01/2026 : ensures we see all of the plots!
+                            #save_name = f"cals_{channel}_{fig_index}.png"
+                            #plt.savefig(save_name)
+                            #print(f" Saved: {save_name}")
+                            fig_index += 1
+                            plt.show()
+
+                        fig, ax = plt.subplots(ROWS, COLS,
+                                               figsize=(25, 12))
+                        fig.suptitle(f'Trimmed Calibration Analysis: '
+                                     f'Time-Series & Regression ({channel})',
+                                     fontsize=16)
+                        ax = ax.flatten()
+
+                    # Two plots per cal: Time-series and Regression
+                    current_ax_reg = ax[plot_counter % MAX_PLOTS]
+                    current_ax_time = ax[(plot_counter % MAX_PLOTS) + 1]
+                # --- PLOTTING LOGIC END ---
+
+                cal_df = cal_df.reset_index(drop=True).copy(deep=True)
+
+                if len(cal_df) == 0:
+                    continue
+
+                print(f'\rcal {cal_num}', end='')
+
+                cal_start_time = cal_df['Date_time'][0]
+
+                # Identify individual calibration steps (points)
+                cal_df['cal_point_switch'] = np.where(
+                    cal_df[f'Cal_{molecule}_MFC_set'] !=
+                    cal_df[f'Cal_{molecule}_MFC_set'].shift(1)
+                    , 1
+                    , 0
+                    )
+               
+                #cal_df['cal_point_switch'] = cal_df['cal_point_switch'].shift(-2300)
+                # 1. Identify the MFC column
+                mfc_col = f'Cal_{molecule}_MFC_set'
+                
+                # 2. Find the 'Switch' rows (where the value jumps)
+                # diff() != 0 marks the first row of the NEW value
+                switches = cal_df[mfc_col].diff() != 0
+                
+                # 3. Use Back-Fill (bfill) to revalue the previous rows
+                # We create a temporary version of the MFC column where the 50 rows 
+                # leading up to a switch are set to the NEW incoming value.
+                temp_mfc = cal_df[mfc_col].copy()
+                
+                # For a 50-row window (5 seconds at 10Hz)
+                for i in range(1, 51):
+                    # This reaches 'i' rows back from every switch and 
+                    # re-labels the X value with the value from the future.
+                    mask = switches.shift(-i, fill_value=False)
+                    cal_df.loc[mask, mfc_col] = cal_df[mfc_col].shift(-i)
+                
+                # 4. Re-calculate your cal_points based on this 'Corrected' X axis
+                cal_df['cal_point'] = (cal_df[mfc_col] != cal_df[mfc_col].shift(1)).cumsum()
+               # cal_df['cal_point'] = cal_df['cal_point_switch'].cumsum()
+                cal_points = cal_df.groupby('cal_point')
+                
+                # Reset steady_state column
+                cal_df['stable_cal_point'] = False
+                # Shifting the MFC 'backwards' by 5 rows
+                
+                # ==========================================================
+                # --- CORRECTED STEADY-STATE (TRIM) LOGIC ---
+                # This applies a 5% trim to the start and end of EACH cal_point
+                # ==========================================================
+                """ 
+                for cal_point, cal_point_df in cal_points:
+
+                    point_length = len(cal_point_df)
+
+                    # Calculate the number of points to trim (5% of length)
+                    trim_n = int(np.ceil(point_length * 0.05)) 
+                    
+
+                    # Check if there's enough data left (> 10% trimmed)
+                    if point_length > 2 * trim_n:
+
+                        # Get indices of the middle 90% (trimmed data)
+                        stable_cal_point_indices = cal_point_df.iloc[
+                            trim_n : point_length - trim_n].index
+
+                        # Set 'stable_cal_point' to True for these indices
+                        cal_df.loc[stable_cal_point_indices,
+                                   'stable_cal_point'] = True
+                 """ 
+                for cal_point, cal_point_df in cal_points:
+                    point_length = len(cal_point_df)
+                
+                    trim_start = int(np.ceil(point_length * 0.05)) 
+                    trim_end = int(np.ceil(point_length * 0.60))
+                
+                    if point_length > (trim_start + trim_end):
+                        # This targets the 'tail' of the step
+                        stable_indices = cal_point_df.iloc[trim_start : point_length - trim_end].index
+                        cal_df.loc[stable_indices, 'stable_cal_point'] = True
+                                          
+                        
+                
+                # ==========================================================
+
+                stable_cal_point_mask = cal_df['stable_cal_point'] == True
+                cal_df_filtered = cal_df[stable_cal_point_mask].copy()
+                #remove any single data point (e.g. one stable group), if the mean value of it is less than 0. 
+                #09/02/2026
+                cal_df_filtered = cal_df_filtered.groupby('cal_point').filter(
+                    #lambda x: is a shorthand way of defining a function. It defines the input. The code after the : is the logic applied.
+                    lambda x: x[f'{channel}_diff_cts_ref_norm_zero_corr'].mean() > 0)
+                if len(cal_df_filtered) == 0:
+                    continue
+
+
+                regression_cols = [f'{molecule}_mr',
+                                   f'{channel}_diff_cts_ref_norm_zero_corr']
+                cal_df_cleaned = cal_df_filtered.replace(
+                    [np.inf, -np.inf], np.nan).dropna(
+                        subset=regression_cols)
+
+                # --- Prepare data for regression ---
+                X = cal_df_cleaned[f'{molecule}_mr']
+                Y = cal_df_cleaned[f'{channel}_diff_cts_ref_norm_zero_corr']
+                #Y = cal_df_cleaned.groupby('cal_point')[f'{channel}_diff_cts_ref_norm_zero_corr'].transform('mean')
+                cal_laser_power = cal_df_filtered['lsr_pwr_mW'].mean()
+
+                # Check for sufficient data points before regression
+                if len(X) < 2 or X.nunique() < 2:
+                    print(' filtered data has no points')
+                    slope, intercept, r_value, p_value, \
+                        std_err_of_slope = [np.nan] * 5
+                else:
+                    slope, intercept, r_value, p_value, \
+                        std_err_of_slope = linregress(X, Y)
+
+                if plot:
+                    # ==========================================================
+                    # --- PLOT 1: TIME SERIES ---
+                    # ==========================================================
+
+                    # 1. Plot all data points against time
+                    current_ax_time.plot(cal_df['Date_time'],
+                                         cal_df[f'{channel}_diff_cts_ref_norm_zero_corr'],
+                                         label='All Data', color='gray',
+                                         linewidth=1, alpha=0.5)
+
+                    # 2. Highlight the steady-state regions
+                    current_ax_time.plot(
+                        cal_df_filtered['Date_time'],
+                        cal_df_filtered[f'{channel}_diff_cts_ref_norm_zero_corr'],
+                        label='Trimmed (90%)', color='firebrick',
+                        linewidth=1)
+
+                    # Formatting for Time Plot
+                    current_ax_time.set_title(
+                        f'Cal {cal_num} - Time Series (90% Trim)',
+                        fontsize=8)
+                    current_ax_time.tick_params(axis='both', which='major',
+                                                labelsize=6)
+                    current_ax_time.tick_params(axis='x', rotation=45)
+                    current_ax_time.set_ylabel('Signal (norm. cts)',
+                                               fontsize=7)
+                    current_ax_time.legend(loc='upper right', fontsize=6)
+
+                    # ==========================================================
+                    # --- PLOT 2: REGRESSION ---
+                    # ==========================================================
+
+                    # 1. Plot all data points for this cal (as background)
+                    current_ax_reg.scatter(
+                        cal_df[f'{molecule}_mr'],
+                        cal_df[f'{channel}_diff_cts_ref_norm_zero_corr'],
+                        label='All Data', s=5, alpha=0.3, color='gray')
+
+                    # 2. Plot filtered (trimmed) points
+                    current_ax_reg.scatter(X, Y,
+                                           label='Trimmed Data', s=10,
+                                           color='darkslateblue')
+
+                    # 3. Plot the regression line if successful
+                    if not np.isnan(slope):
+                        x_fit = np.linspace(X.min(), X.max(), 100)
+                        y_fit = slope * x_fit + intercept
+                        current_ax_reg.plot(
+                            x_fit, y_fit,
+                            label=f'Fit (R2: {r_value**2:.2f})',
+                            color='red', linestyle='--')
+                        current_ax_reg.text(
+                            0.05, 0.95, f'Slope: {slope:.2e}',
+                            transform=current_ax_reg.transAxes,
+                            verticalalignment='top', fontsize=6)
+                    else:
+                        current_ax_reg.text(
+                            0.5, 0.5, 'Regression analysis failed',
+                            transform=current_ax_reg.transAxes,
+                            verticalalignment='center',
+                            horizontalalignment='center', color='red')
+
+                    # Formatting for Regression Plot
+                    current_ax_reg.set_title(
+                        f'Cal {cal_num} - Regression', fontsize=8)
+                    current_ax_reg.tick_params(axis='both', which='major',
+                                                labelsize=6)
+                    current_ax_reg.set_xlabel('Mixing Ratio (MR)',
+                                              fontsize=7)
+                    current_ax_reg.legend(loc='lower right', fontsize=6)
+
+                    plot_counter += 2
+
+
+                new_data_to_append = {
+                    'cal_number': cal_num,
+                    'cal_start_date_time': cal_start_time,
+                    'avg_lsr_pwr': cal_laser_power,
+                    'slope': slope,
+                    'intercept': intercept,
+                    'R2': r_value**2,
+                    'slope_std_err': std_err_of_slope
+                    }
+
+                if save_csv:
+                    writer.writerow(new_data_to_append)
+
+            # After the channel loop, close the file if it was opened
+            if save_csv:
+                txtfile.close()
+
+        except Exception as e:
+            print(f"An error occurred for channel {channel}: {e}")
+            if save_csv and txtfile:
+                txtfile.close()
+            continue
+
+        # After the loop finishes, show the last partially filled figure
+        if plot and fig is not None:
+            for i in range(plot_counter % MAX_PLOTS, MAX_PLOTS):
+                ax[i].axis('off')
+            plt.tight_layout()
+            save_name = f"cals_{channel}_{fig_index}.png"
+            plt.savefig(save_name)
+            print(f" Saved final page: {save_name}")
+            #plt.savefig("./cals_on_plots.html")
+            plt.show()
+            plot_counter = 0
+            fig_index = 1 # reset for the next channels 21/01/2026
+            fig = None
+            ax = None
+            
+    if plot:
+
+        # Create subplots: one row per channel
+        fig, ax = plt.subplots(len(channels), 1, 
+                               figsize=(12, len(channels) * 6))
+
+        # Ensure ax is always iterable even for a single channel
+        if len(channels) == 1:
+            ax = [ax] 
+
+        for i, channel in enumerate(channels):
+
+            file_path = os.path.join(data_dir, f'{channel}_cal_data.txt')
+            cal_data_df = pd.read_csv(file_path)
+
+            # Filter out poor regressions (R2 < 0.75) and sort by time
+            cal_df_filtered = cal_data_df[
+                cal_data_df['R2'] >= 0.8
+            ].sort_values(by='cal_start_date_time')
+
+            # Convert time column to datetime objects
+            time_data = pd.to_datetime(
+                cal_df_filtered['cal_start_date_time'])
+            
+            # --- Plotting ---
+            
+            ax[i].errorbar(
+                time_data,                           # X-axis: Time
+                cal_df_filtered['slope'],            # Y-axis: Calibration Factor
+                yerr=cal_df_filtered['slope_std_err'], # Error bars (y-uncertainty)
+                fmt='o',                             # Format: 'o' for circles (scatter)
+                capsize=3,                           # Size of the error bar caps
+                color='darkslateblue',
+                label='calculated cal factors'
+            )
+                               
+            # --- Formatting ---
+            ax[i].set_xlabel('cal start time')
+            ax[i].set_ylabel('calibration factor')
+            ax[i].set_title(f'{channel}')
+            ax[i].legend()
+
+        plt.tight_layout()
+        plt.savefig('./cals.png')
+        #plt.savefig('./cals.html')
+        plt.show()
+    # --- Summary Printout ---
+    print("\n" + "="*30)
+    print("CALIBRATION QUALITY SUMMARY")
+    print("="*30)
+    
+    threshold = threshold
+    #21/01/2026 changes
+    fig_index = 1
+    for channel in channels:
+        file_path = os.path.join(data_dir, f'{channel}_cal_data.txt')
+        if os.path.exists(file_path):
+            summary_df = pd.read_csv(file_path)
+            # Count total vs high quality
+            total_cals = len(summary_df)
+            high_quality_cals = len(summary_df[summary_df['R2'] > threshold])
+            
+            print(f"Channel: {channel}")
+            print(f"  - Total calibrations analyzed: {total_cals}")
+            print(f"  - Cals with R2 > {threshold}: {high_quality_cals} ({(high_quality_cals/total_cals*100):.1f}%)")
+        else:
+            print(f"Channel: {channel} - No calibration file found.")
+           
+            
+    print("="*30 + "\n")   
+    return
+
+
+
+
 
 def analyse_cals_n(data, data_dir, channels, molecule, cal_cylinder_conc
                  , plot, save_csv, cal_task, threshold):
@@ -4213,7 +5114,7 @@ def analyse_cals_n(data, data_dir, channels, molecule, cal_cylinder_conc
                 # --- Prepare data for regression ---
                 X = cal_df_cleaned[f'{molecule}_mr']
                 Y = cal_df_cleaned[f'{channel}_diff_cts_ref_norm_zero_corr']
-
+                
                 cal_laser_power = cal_df_filtered['lsr_pwr_mW'].mean()
 
                 # Check for sufficient data points before regression
@@ -7399,7 +8300,7 @@ def resample_data(data, averaging):
     
     resample_data = data.copy()
     resample_data = resample_data.set_index('Date_time')
-    resample_data = resample_data.resample(averaging).mean()
+    resample_data = resample_data.resample(averaging).median()
     resample_data = resample_data.reset_index()
     
     start_date = "2025-03-06 20:24:00"
@@ -7445,30 +8346,49 @@ def save_to_csv_unresamp(data_dir, filename, data):
 
 
 ###figuring out the errors for the data###
-def error_calculation(data):
-    """
-    Parameters
-    ----------
-    data : finalised data.
+#def error_calculation(data, cal_cylinder_conc, ):
+    
+    #Errors we need to account for:
+        #1) Error on the cylinder: BOC set this as 5%
+        #2) Error on the mass flow controller: either the one set by Alicat or the error of the points we calc from read
+        #3) Error on the arb value of sig diff ref norm for the cals
+        #4) Error on the zeros
+        #5) Errors on temp, laser power etc. should just be gone as we account for these during the ref cell correction.
 
-    Returns
-    -------
-    None.
+    
 
-    """
-    data = data.copy()
+    #print("Calculating the total error on the data!")
+    #data = data.copy()
 #will need the data where we still have the MFC in, to be able to calc the std of the read
 #need the error of the cals (SO2 MFC, ZA MFC, Cell Flow)
 
 #need to find all data when we have a cal (use analyse cals logic)
 #find error at each cal point (total), then take a mean of std to get overall value?
-    cal_error = data[""]
-    zero_error = zero_data[""]
+    #need the data from the reprocessed for a cal
+    #cal_error = data[""]
+    #cylinder_error = cal_cylinder_conc *0.05 
+    #cylinder error = 5%
+    #MFC error =
+    #Flow meter error= 
+    #do we need the error on the omron aswell?
+    
+    #convert the data to a mixing ratio
+    #zero_data = pd.read_csv(r)
+    #zero_error = zero_data["slope std"].mean()
+    #cal_data = (r)
+    #cal_data_mean = cal_data[""].mean()
+    #zero_error_ppt = zero_error / cal_data_mean
+    #print("Zero error value in ppt = ", zero_error_ppt)
+    
+    #cal error
+    #np.sqrt((mfc_error + cylinder_error)**2 + (sig_arb_error)**2)
+    
+    #total error
+    #zero_error_ppt + 
+    #lorens thessi pg 111
+    #print("The total error on these measurements is \um", f'{cal_error}%', '+', f'{zero_error_ppt}', 'ppt')
 
-    np.sqrt
-
-
-
+    #print("The total error on the data is", , , , , , )
 
 
 """
@@ -7854,7 +8774,7 @@ def join_txt(processed_data_dir, campaign):
     print(f"Successfully created: {save_path}")
     return combined_df
 
-def SO2_plot_data(processed_data_dir, filename, campaign, version, plot=True):
+def SO2_plot_data_with_resample(processed_data_dir, filename, campaign, version, resample, averaging, plot=True):
     print("Loading SO2 data...")
     try:
         so2_file = os.path.join(processed_data_dir, f'{filename}.txt')
@@ -7892,26 +8812,125 @@ def SO2_plot_data(processed_data_dir, filename, campaign, version, plot=True):
         # Convert to datetime
         SO2_data['Date_time'] = pd.to_datetime(SO2_data['Date_time'])
         
-        # ... rest of your plotting code ...
+        mask = SO2_data["amb_SO2_ppt"] <= 0
+        # Count how many are True
+        count_below_zero = mask.sum()
+        total_rows = len(SO2_data)
+        pct_below_zero = (count_below_zero / total_rows) * 100
         
-        # ... rest of your plotting code ...
+        print(f"Percentage of data <= 0: {pct_below_zero:.2f}%")
     
         campaign = campaign
         version = version
         fig, o = plt.subplots(1, 1, figsize=(10, 5))
         o.plot(SO2_data['Date_time'], SO2_data['amb_SO2_ppt'], color='blue')
+        o.axhline(y =0, color = "r")
         plt.title(f"SO2 {campaign} {version}")
         plt.xlabel("Time (UTC)",fontsize = 20)
         plt.ylabel("SO2 (ppt)",fontsize = 20)
         plt.xticks(fontsize = 20)
         plt.yticks(fontsize = 20)
         plt.show()
+        resample = resample
+        
+        if resample == True:
+            resample_data = SO2_data.copy()
+            resample_data = resample_data.set_index('Date_time')
+            resample_data = resample_data.resample(averaging).median()
+            resample_data = resample_data.reset_index()
+            
+            start_date = "2025-03-06 20:24:00"
+            end_date = "2025-03-06 20:35:00"
+            
+            start_date_x = "2025-03-07 08:53:00"
+            end_date_x = "2025-03-07 08:56:01"
+            mask = (
+                ((resample_data['Date_time'] >= start_date) & (resample_data['Date_time'] <= end_date))|
+                ((resample_data['Date_time'] >= start_date_x) & (resample_data['Date_time'] <= end_date_x))
+                    )
+            resample_data=resample_data[~mask]
+            
+            resample_data["Date_time"] = pd.to_datetime(resample_data["Date_time"])
+            
+            fig, i = plt.subplots(1,1)
+            i.plot(resample_data["Date_time"], resample_data["amb_SO2_ppt"])
+            plt.xlabel("Datetime (UTC)", fontsize= 20)
+            plt.ylabel("SO2 (ppt)", fontsize= 20)
+            return resample_data
         
         return SO2_data 
     
     except FileNotFoundError:
         print(f"Error: SO2 file not found in {processed_data_dir}.")
         return None # Return None so the script doesn't crash later
+
+def SO2_plot_data(processed_data_dir, filename, campaign, version,plot=True):
+    print("Loading SO2 data...")
+    try:
+        so2_file = os.path.join(processed_data_dir, f'{filename}.txt')
+        
+        # 1. Find the exact line index for 'Date_time'
+        with open(so2_file, 'r') as f:
+            lines = f.readlines()
+            header_idx = None
+            for i, line in enumerate(lines):
+                # Using strip() to remove \n and checking if it starts with our header
+                if line.strip().startswith('Date_time'):
+                    header_idx = i
+                    break
+        
+        if header_idx is None:
+            print("Error: Could not find 'Date_time' header line.")
+            return None
+
+        # 2. Load the data
+        # header=header_idx tells pandas that row is the column names
+        # sep=',' ensures the comma is used to split the columns
+        SO2_data = pd.read_csv(
+            so2_file, 
+            skiprows=header_idx, 
+            sep=',',
+            skip_blank_lines=True
+        )
+        # 3. Clean and Validate
+        SO2_data.columns = SO2_data.columns.str.strip()
+        print(f"Columns successfully identified: {SO2_data.columns.tolist()}")
+
+        # Drop rows where data is missing (common in the first few lines of your file)
+        SO2_data = SO2_data.dropna(subset=['Date_time'])
+        
+        # Convert to datetime
+        SO2_data['Date_time'] = pd.to_datetime(SO2_data['Date_time'])
+        
+        mask = SO2_data["amb_SO2_ppt"] <= 0
+        # Count how many are True
+        count_below_zero = mask.sum()
+        total_rows = len(SO2_data)
+        pct_below_zero = (count_below_zero / total_rows) * 100
+        
+        print(f"Percentage of data <= 0: {pct_below_zero:.2f}%")
+    
+        campaign = campaign
+        version = version
+        fig, o = plt.subplots(1, 1, figsize=(10, 5))
+        o.plot(SO2_data['Date_time'], SO2_data['amb_SO2_ppt'], color='blue')
+        o.axhline(y =0, color = "r")
+        plt.title(f"SO2 {campaign} {version}")
+        plt.xlabel("Time (UTC)",fontsize = 20)
+        plt.ylabel("SO2 (ppt)",fontsize = 20)
+        plt.xticks(fontsize = 20)
+        plt.yticks(fontsize = 20)
+        plt.show()
+
+        
+        return SO2_data 
+    
+    except FileNotFoundError:
+        print(f"Error: SO2 file not found in {processed_data_dir}.")
+        return None # Return None so the script doesn't crash later
+
+
+
     
 def SO2_plot_data_10Hz(processed_data_dir, filename, campaign, version, plot = True):
     print("Loading SO2 data...")
@@ -7935,14 +8954,12 @@ def SO2_plot_data_10Hz(processed_data_dir, filename, campaign, version, plot = T
 
         # Convert to datetime
         SO2_data['Date_time'] = pd.to_datetime(SO2_data['Date_time'])#.dt.floor('min')
-        
-        # ... rest of your plotting code ...
     
         campaign = campaign
         version = version
         fig, o = plt.subplots(1, 1, figsize=(10, 5))
         o.plot(SO2_data['Date_time'], SO2_data['amb_SO2_ppt'], color='blue')
-        plt.title(f"SO2 {campaign} {version}")
+        plt.title(f"SO2 {campaign} {version} 10Hz resolution")
         plt.xlabel("Time (UTC)",fontsize = 20)
         plt.ylabel("SO2 (ppt)",fontsize = 20)
         plt.xticks(fontsize = 20)
@@ -8323,7 +9340,7 @@ def DY195_in_sector(underway_data, filtered_DY195_SO2_data):
     combined_df = pd.merge(underway, so2, on='merge_time', how='inner')
     
     # 4. Filter columns and apply sector logic
-    combined_df = combined_df[['merge_time', 'COG_deg_1min', 'amb_SO2_ppt']]
+    combined_df = combined_df[['merge_time', 'COG_deg_1min', 'amb_SO2_ppt', 'flag']]
     df_filtered = combined_df[(combined_df['COG_deg_1min'] >= 240) | 
                               (combined_df['COG_deg_1min'] <= 120)].copy()
 
@@ -8624,6 +9641,189 @@ def DY195_in_sector_diurnal_1min(SO2_1min_in_sector):
     plt.tight_layout()
     plt.show()
     
+def DY195_in_sector_diurnal_1min_flagged_periods_excluded(SO2_1min_in_sector):
+    #copy all the data as appropriate!
+    SO2_1min_in_sector = SO2_1min_in_sector.rename(columns={'time_1min': 'Date_time'})
+    SO2_1min_in_sector['Date_time'] = pd.to_datetime(SO2_1min_in_sector['Date_time'], 
+                                                     utc=True).dt.tz_convert('Etc/GMT+1')
+    
+    #mask = 
+    
+    SO2_1min_in_sector
+    SO2_in_sector_1_min_for_hour = SO2_1min_in_sector.copy()
+    SO2_in_sector_1_min_for_10_mins = SO2_1min_in_sector.copy()
+    
+    
+    #DOING with 1min averaged data!
+    SO2_in_sector_1_min_for_hour['hour'] = SO2_in_sector_1_min_for_hour['Date_time'].dt.hour
+    grouped = SO2_in_sector_1_min_for_hour.groupby('hour')['amb_SO2_ppt']
+    ################################################
+                #DOING MEAN DIURNALS
+    ################################################
+    diurnal_mean_1_1 = grouped.mean()
+    diurnal_se_1_1 = grouped.sem()
+    
+    fig, SO2_1min_1hour = plt.subplots(figsize = (10,5))
+    SO2_1min_1hour.plot(diurnal_mean_1_1.index, diurnal_mean_1_1.values, 
+                        marker='o', linestyle='-', color='black', label='Mean SO₂')
+    # Plot shaded SE band
+    SO2_1min_1hour.fill_between(
+        diurnal_mean_1_1.index,
+        diurnal_mean_1_1 - diurnal_se_1_1,
+        diurnal_mean_1_1 + diurnal_se_1_1,
+        color='green', alpha=0.3, label='±1 SE'
+    )
+    # Styling
+    plt.title("1hour diurnal of SO2 (DY195, whole cruise)", fontsize = 20)
+    plt.xlabel("Hour of day (UTC -1)", fontsize=22)
+    plt.ylabel("SO₂ (ppt)", fontsize=22)
+    plt.xticks(range(0, 24), fontsize=22)
+    plt.yticks(fontsize=22)
+    plt.legend(fontsize=22)
+    #import matplotlib as mpl
+    #mpl.rcParams['svg.fonttype'] = 'none'
+    plt.tight_layout()
+    
+    #10MIN BINS DIURNAL
+    SO2_in_sector_1_min_for_10_mins['time_of_day'] = SO2_in_sector_1_min_for_10_mins['Date_time'].dt.floor("10min").dt.time
+    
+    # 2. Filter the raw data (Removing the contamination)
+    mask_to_remove = (SO2_in_sector_1_min_for_10_mins['Date_time'].dt.hour == 7) & \
+                     (SO2_in_sector_1_min_for_10_mins['Date_time'].dt.minute <= 30)
+    df_filtered = SO2_in_sector_1_min_for_10_mins[~mask_to_remove].copy()
+    
+    # 3. Group the filtered data
+    grouped = df_filtered.groupby('time_of_day')['amb_SO2_ppt']
+    diurnal_mean_1_10 = grouped.mean()
+    diurnal_se_1_10 = grouped.sem()
+    
+    # --- THE FIX: Reindex to a full 24-hour day ---
+    # This ensures 07:00 exists in the index even if it has no data
+    full_day_range = pd.date_range("00:00", "23:50", freq="10min").time
+    diurnal_mean_1_10 = diurnal_mean_1_10.reindex(full_day_range)
+    diurnal_se_1_10 = diurnal_se_1_10.reindex(full_day_range)
+
+    # 4. Prepare Plotting Coordinates
+    x_vals_1_10 = np.arange(len(diurnal_mean_1_10)) # Always 144
+    
+    # 5. Guaranteed 24-Hour Ticks (Finding HH:00 in the full skeleton)
+    tick_indices = [i for i, t in enumerate(diurnal_mean_1_10.index) if t.minute == 0]
+    tick_labels = [diurnal_mean_1_10.index[i].strftime("%H:00") for i in tick_indices]
+
+           
+    fig, ax = plt.subplots(figsize=(15, 6))
+    
+    # 6. Plot (Using .values to handle the NaNs correctly)
+    ax.plot(x_vals_1_10, diurnal_mean_1_10.values, 
+            marker='o', markersize=4, linestyle='-', color='black', label='Mean $SO_2$')
+    ax.fill_between(
+        x_vals_1_10, 
+        diurnal_mean_1_10.values - diurnal_se_1_10.values,
+        diurnal_mean_1_10.values + diurnal_se_1_10.values,
+        color='green', alpha=0.3, label='±1 SE'
+    )
+    
+    # Display the combined figure
+    ax.set_xticks(tick_indices)
+    ax.set_xticklabels(tick_labels, rotation=45, fontsize=22)
+    plt.yticks(fontsize=22)
+
+    ax.set_title("10-minute Diurnal Cycle (SO2, DY195 whole cruise)", fontsize=20)
+    ax.set_xlabel("Hour of day (UTC-1)", fontsize=22)
+    ax.set_ylabel("$SO_2$ (ppt)", fontsize=22) 
+    ax.legend(fontsize=18)
+    
+    plt.tight_layout()
+    plt.show()
+    
+    ################################################
+                    #DOING MEDIANS
+    ################################################
+    grouped_hourly = SO2_in_sector_1_min_for_hour.groupby('hour')['amb_SO2_ppt']
+    diurnal_median_1_1 = grouped_hourly.median()
+    diurnal_se_1_1 = grouped_hourly.sem()
+    
+   
+    fig, SO2_1min_1hour = plt.subplots(figsize = (10,5))
+    x_values = diurnal_median_1_1.index#.astype(str)
+    SO2_1min_1hour.plot(x_values, diurnal_median_1_1.values, 
+                        marker='o', linestyle='-', color='black', label='Median $SO_2$')
+    # Plot shaded SE band
+    SO2_1min_1hour.fill_between(
+        x_values,
+        diurnal_median_1_1 - diurnal_se_1_1,
+        diurnal_median_1_1 + diurnal_se_1_1,
+        color='orange', alpha=0.3, label='±1 SE'
+    )
+    # Styling
+    plt.title("1hour diurnal of SO2 (DY195, whole cruise)", fontsize = 20)
+    plt.xlabel("Hour of day (UTC -1)", fontsize=22)
+    plt.ylabel("SO₂ (ppt)", fontsize=22)
+    plt.xticks(range(0, 24), fontsize=22)
+    plt.yticks(fontsize=22)
+    plt.legend(fontsize=22)
+    #import matplotlib as mpl
+    #mpl.rcParams['svg.fonttype'] = 'none'
+    plt.tight_layout()
+    
+    #10MIN BINS DIURNAL
+    SO2_in_sector_1_min_for_10_mins['time_of_day'] = SO2_in_sector_1_min_for_10_mins['Date_time'].dt.floor("10min").dt.time
+    
+    # 2. Filter the raw data (Removing the contamination)
+    mask_to_remove = (SO2_in_sector_1_min_for_10_mins['Date_time'].dt.hour == 7) & \
+                     (SO2_in_sector_1_min_for_10_mins['Date_time'].dt.minute <= 30)
+    df_filtered = SO2_in_sector_1_min_for_10_mins[~mask_to_remove].copy()
+    
+    # 3. Group the filtered data
+    grouped = df_filtered.groupby('time_of_day')['amb_SO2_ppt']
+    diurnal_median_1_10 = grouped.median(numeric_only = True)
+    diurnal_se_1_10 = grouped.sem(numeric_only = True)
+    
+    # --- THE FIX: Reindex to a full 24-hour day ---
+    # This ensures 07:00 exists in the index even if it has no data
+    full_day_range = pd.date_range("00:00", "23:50", freq="10min").time
+    diurnal_median_1_10 = diurnal_median_1_10.reindex(full_day_range)
+    diurnal_se_1_10 = diurnal_se_1_10.reindex(full_day_range)
+
+    # 4. Prepare Plotting Coordinates
+    x_vals_1_10 = np.arange(len(diurnal_mean_1_10)) # Always 144
+    
+    # 5. Guaranteed 24-Hour Ticks (Finding HH:00 in the full skeleton)
+    tick_indices = [i for i, t in enumerate(diurnal_median_1_10.index) if t.minute == 0]
+    tick_labels = [diurnal_median_1_10.index[i].strftime("%H:00") for i in tick_indices]
+
+           
+    fig, ax = plt.subplots(figsize=(15, 6))
+    
+    # 6. Plot (Using .values to handle the NaNs correctly)
+    ax.plot(x_vals_1_10, diurnal_median_1_10.values, 
+            marker='o', markersize=4, linestyle='-', color='black', label='Median $SO_2$')
+    ax.fill_between(
+        x_vals_1_10, 
+        diurnal_median_1_10.values - diurnal_se_1_10.values,
+        diurnal_median_1_10.values + diurnal_se_1_10.values,
+        color='orange', alpha=0.3, label='±1 SE'
+    )
+    
+    # Display the combined figure
+    ax.set_xticks(tick_indices)
+    ax.set_xticklabels(tick_labels, rotation=45, fontsize=22)
+    plt.yticks(fontsize=22)
+
+    ax.set_title("10-minute Diurnal Cycle (SO2, DY195 whole cruise)", fontsize=20)
+    ax.set_xlabel("Hour of day (UTC-1)", fontsize=22)
+    ax.set_ylabel("$SO_2$ (ppt)", fontsize=22) 
+    ax.legend(fontsize=18)
+    
+    plt.tight_layout()
+    plt.show()    
+    
+    
+    
+    
+    
+    
+    
 def DY195_in_sector_diurnal_5min(SO2_5min_in_sector):
     # Standardize data and handle timezone
     SO2_5min_in_sector = SO2_5min_in_sector.reset_index()
@@ -8923,7 +10123,7 @@ def MH_flagged_periods(MH_interuptions_path, SO2_data):
     interuptions.columns = interuptions.columns.str.strip()
     
     # 2. Clean up flags: fill empty with 0 and ensure they are integers
-    flag_cols = ['flag'] 
+    flag_cols = ['flag', 'data_analysis_flag'] 
     for col in flag_cols:
         if col in interuptions.columns:
             interuptions[col] = interuptions[col].fillna(0).astype(int)
@@ -8935,21 +10135,25 @@ def MH_flagged_periods(MH_interuptions_path, SO2_data):
     interuptions['End'] = pd.to_datetime(interuptions['End'], format = "mixed", dayfirst=True)
 
     # 4. Initialize flags in SO2_data as 0
-    SO2_data['flag'] = 0
-    #SO2_data['other_remove'] = 0
+    SO2_data['flag_remove'] = 0
+    SO2_data['data_analysis_flag_remove'] = 0
+    SO2_data['unsure_flag_remove'] = 0
 
     # 5. Apply the windows from the interruptions table
     for _, row in interuptions.iterrows():
         mask = (SO2_data['Date_time'] >= row['Start']) & (SO2_data['Date_time'] <= row['End'])
-        if row['flag'] == 0:
-            SO2_data.loc[mask, 'flag'] = 1  
-        #if row['other_flag'] == 1:
-           # SO2_data.loc[mask, 'other_remove'] = 1
+        if row['flag'] == 1:
+            SO2_data.loc[mask, 'flag_remove'] = 1 
+        if row['data_analysis_flag'] == 1:
+            SO2_data.loc[mask,'data_analysis_flag_remove'] = 1 
+        if row['unsure_flag'] == 1:
+            SO2_data.loc[mask, 'unsure_flag_remove'] = 1
 
     # 6. Filter for clean data
     SO2_data_clean = SO2_data[
-        (SO2_data['flag'] == 0)].copy()# & 
-        #(SO2_data['other_remove'] == 0)].copy()
+        (SO2_data['flag_remove'] == 0) & 
+        (SO2_data['data_analysis_flag_remove'] == 0) &
+        (SO2_data['unsure_flag_remove'] ==0)].copy()
     plt.figure(figsize=(10, 5))
     plt.plot(SO2_data_clean["Date_time"], SO2_data_clean["amb_SO2_ppt"])
     plt.title("Cleaned SO2 Data (Flagged Periods Removed)",fontsize = 16)
@@ -8960,11 +10164,12 @@ def MH_flagged_periods(MH_interuptions_path, SO2_data):
     
     return SO2_data_clean
 
-def load_baseline_flagger(data_dir_MH_base, MH_Baseline, SO2_data):
+def MH_baseline_flagger(data_dir_MH_base, SO2_data):
 #defined from the MH shared drive
 #B=0-9 Mixed    B=10-19 Baseline   B=20-29 Local
 #B=30-39 Southerly   B=40-49 Polluted   B=50-59 ExcBase  
 # --- Load and Preprocess Baseline Data ---
+    print("Figuring out the baseline SO2 values!")    
     baseline_file = os.path.join(data_dir_MH_base, 'MH_G_baseComb2_2025.txt')
     baseline_data = pd.read_csv(
             baseline_file, sep=r'\s+', header=6, engine='python')
@@ -8987,7 +10192,9 @@ def load_baseline_flagger(data_dir_MH_base, MH_Baseline, SO2_data):
     baseline_data = baseline_data.dropna(
             subset=['Date_time']).sort_values('Date_time') 
     
-    SO2_data = SO2_data      
+    SO2_data = SO2_data.copy()
+    mask = SO2_data["flag"] ==0
+    SO2_data  = SO2_data[mask]     
     SO2_data = SO2_data.sort_values('Date_time')
     baseline_data = baseline_data.sort_values('Date_time')
 
@@ -9002,15 +10209,457 @@ def load_baseline_flagger(data_dir_MH_base, MH_Baseline, SO2_data):
     # This keeps every SO2 point that fell into a 2h window starting with flag 10-19
     SO2_filtered = SO2_with_flags[
         (SO2_with_flags['B'] >= 10) & (SO2_with_flags['B'] < 20)].copy()
-    SO2_filtered["Date_time"] = pd.to_datetime["Date_time"]
+    SO2_filtered["Date_time"] = pd.to_datetime(SO2_filtered["Date_time"])
     #plot out the filtered baseline data
     fig, i = plt.subplots(1,1)
     i.plot(SO2_filtered["Date_time"], SO2_filtered["amb_SO2_ppt"])
     plt.xlabel("Datetime", fontsize = 20)
     plt.ylabel("SO2 (ppt)", fontsize = 20)
     plt.title("SO2 at Mace Head in the baseline sector", fontsize = 20)
-
+    
+    total_data = len(SO2_data)
+    baseline_data = len(SO2_filtered)
+    
+    baseline_data_actual = ( baseline_data / total_data ) *100
+    print("Percentage of data that is in the baseline sector =", baseline_data_actual, "%")
     return SO2_filtered
+
+#what other functions do we need for the MH data? Do we want to try to flag for solar? Winds?
+#RH? Rain fall? etc.
+
+def MH_diurnal(SO2_1min_in_sector):
+    #copy all the data as appropriate!
+    SO2_1min_in_sector = SO2_1min_in_sector.rename(columns={'time_1min': 'Date_time'})
+    SO2_1min_in_sector['Date_time'] = pd.to_datetime(SO2_1min_in_sector['Date_time'])
+    SO2_in_sector_1_min_for_hour = SO2_1min_in_sector.copy()
+    SO2_in_sector_1_min_for_10_mins = SO2_1min_in_sector.copy()
+    
+    
+    #DOING with 1min averaged data!
+    SO2_in_sector_1_min_for_hour['hour'] = SO2_in_sector_1_min_for_hour['Date_time'].dt.hour
+    grouped = SO2_in_sector_1_min_for_hour.groupby('hour')['amb_SO2_ppt']
+    ################################################
+                #DOING MEAN DIURNALS
+    ################################################
+    diurnal_mean_1_1 = grouped.mean()
+    diurnal_se_1_1 = grouped.sem()
+    
+    fig, SO2_1min_1hour = plt.subplots(figsize = (10,5))
+    SO2_1min_1hour.plot(diurnal_mean_1_1.index, diurnal_mean_1_1.values, 
+                        marker='o', linestyle='-', color='black', label='Mean SO₂')
+    # Plot shaded SE band
+    SO2_1min_1hour.fill_between(
+        diurnal_mean_1_1.index,
+        diurnal_mean_1_1 - diurnal_se_1_1,
+        diurnal_mean_1_1 + diurnal_se_1_1,
+        color='green', alpha=0.3, label='±1 SE'
+    )
+    # Styling
+    plt.title("1hour diurnal of $SO_2$", fontsize = 20)
+    plt.xlabel("Hour of day (UTC)", fontsize=22)
+    plt.ylabel("SO₂ (ppt)", fontsize=22)
+    plt.xticks(range(0, 24), fontsize=22)
+    plt.yticks(fontsize=22)
+    plt.legend(fontsize=22)
+    #import matplotlib as mpl
+    #mpl.rcParams['svg.fonttype'] = 'none'
+    plt.tight_layout()
+    
+    #10MIN BINS DIURNAL
+    SO2_in_sector_1_min_for_10_mins['time_of_day'] = SO2_in_sector_1_min_for_10_mins['Date_time'].dt.floor("10min").dt.time
+    
+    # 2. Filter the raw data (Removing the contamination)
+    mask_to_remove = (SO2_in_sector_1_min_for_10_mins['Date_time'].dt.hour == 7) & \
+                     (SO2_in_sector_1_min_for_10_mins['Date_time'].dt.minute <= 30)
+    df_filtered = SO2_in_sector_1_min_for_10_mins[~mask_to_remove].copy()
+    
+    # 3. Group the filtered data
+    grouped = df_filtered.groupby('time_of_day')['amb_SO2_ppt']
+    diurnal_mean_1_10 = grouped.mean()
+    diurnal_se_1_10 = grouped.sem()
+    
+    # --- THE FIX: Reindex to a full 24-hour day ---
+    # This ensures 07:00 exists in the index even if it has no data
+    full_day_range = pd.date_range("00:00", "23:50", freq="10min").time
+    diurnal_mean_1_10 = diurnal_mean_1_10.reindex(full_day_range)
+    diurnal_se_1_10 = diurnal_se_1_10.reindex(full_day_range)
+
+    # 4. Prepare Plotting Coordinates
+    x_vals_1_10 = np.arange(len(diurnal_mean_1_10)) # Always 144
+    
+    # 5. Guaranteed 24-Hour Ticks (Finding HH:00 in the full skeleton)
+    tick_indices = [i for i, t in enumerate(diurnal_mean_1_10.index) if t.minute == 0]
+    tick_labels = [diurnal_mean_1_10.index[i].strftime("%H:00") for i in tick_indices]
+
+           
+    fig, ax = plt.subplots(figsize=(15, 6))
+    
+    # 6. Plot (Using .values to handle the NaNs correctly)
+    ax.plot(x_vals_1_10, diurnal_mean_1_10.values, 
+            marker='o', markersize=4, linestyle='-', color='black', label='Mean $SO_2$')
+    ax.fill_between(
+        x_vals_1_10, 
+        diurnal_mean_1_10.values - diurnal_se_1_10.values,
+        diurnal_mean_1_10.values + diurnal_se_1_10.values,
+        color='green', alpha=0.3, label='±1 SE'
+    )
+    
+    # Display the combined figure
+    ax.set_xticks(tick_indices)
+    ax.set_xticklabels(tick_labels, rotation=45, fontsize=22)
+    plt.yticks(fontsize=22)
+
+    ax.set_title("10-minute Diurnal Cycle of $SO_2$", fontsize=20)
+    ax.set_xlabel("Hour of day (UTC)", fontsize=22)
+    ax.set_ylabel("$SO_2$ (ppt)", fontsize=22) 
+    ax.legend(fontsize=18)
+    
+    plt.tight_layout()
+    plt.show()
+    
+    ################################################
+                    #DOING MEDIANS
+    ################################################
+    grouped_hourly = SO2_in_sector_1_min_for_hour.groupby('hour')['amb_SO2_ppt']
+    diurnal_median_1_1 = grouped_hourly.median()
+    diurnal_se_1_1 = grouped_hourly.sem()
+    
+   
+    fig, SO2_1min_1hour = plt.subplots(figsize = (10,5))
+    x_values = diurnal_median_1_1.index#.astype(str)
+    SO2_1min_1hour.plot(x_values, diurnal_median_1_1.values, 
+                        marker='o', linestyle='-', color='black', label='Median $SO_2$')
+    # Plot shaded SE band
+    SO2_1min_1hour.fill_between(
+        x_values,
+        diurnal_median_1_1 - diurnal_se_1_1,
+        diurnal_median_1_1 + diurnal_se_1_1,
+        color='orange', alpha=0.3, label='±1 SE'
+    )
+    # Styling
+    plt.title("1hour diurnal of $SO_2$", fontsize = 20)
+    plt.xlabel("Hour of day (UTC)", fontsize=22)
+    plt.ylabel("SO₂ (ppt)", fontsize=22)
+    plt.xticks(range(0, 24), fontsize=22)
+    plt.yticks(fontsize=22)
+    plt.legend(fontsize=22)
+    #import matplotlib as mpl
+    #mpl.rcParams['svg.fonttype'] = 'none'
+    plt.tight_layout()
+    
+    #10MIN BINS DIURNAL
+    SO2_in_sector_1_min_for_10_mins['time_of_day'] = SO2_in_sector_1_min_for_10_mins['Date_time'].dt.floor("10min").dt.time
+    
+    # 2. Filter the raw data (Removing the contamination)
+    mask_to_remove = (SO2_in_sector_1_min_for_10_mins['Date_time'].dt.hour == 7) & \
+                     (SO2_in_sector_1_min_for_10_mins['Date_time'].dt.minute <= 30)
+    df_filtered = SO2_in_sector_1_min_for_10_mins[~mask_to_remove].copy()
+    
+    # 3. Group the filtered data
+    grouped = df_filtered.groupby('time_of_day')['amb_SO2_ppt']
+    diurnal_median_1_10 = grouped.median(numeric_only = True)
+    diurnal_se_1_10 = grouped.sem(numeric_only = True)
+    
+    # --- THE FIX: Reindex to a full 24-hour day ---
+    # This ensures 07:00 exists in the index even if it has no data
+    full_day_range = pd.date_range("00:00", "23:50", freq="10min").time
+    diurnal_median_1_10 = diurnal_median_1_10.reindex(full_day_range)
+    diurnal_se_1_10 = diurnal_se_1_10.reindex(full_day_range)
+
+    # 4. Prepare Plotting Coordinates
+    x_vals_1_10 = np.arange(len(diurnal_mean_1_10)) # Always 144
+    
+    # 5. Guaranteed 24-Hour Ticks (Finding HH:00 in the full skeleton)
+    tick_indices = [i for i, t in enumerate(diurnal_median_1_10.index) if t.minute == 0]
+    tick_labels = [diurnal_median_1_10.index[i].strftime("%H:00") for i in tick_indices]
+
+           
+    fig, ax = plt.subplots(figsize=(15, 6))
+    
+    # 6. Plot (Using .values to handle the NaNs correctly)
+    ax.plot(x_vals_1_10, diurnal_median_1_10.values, 
+            marker='o', markersize=4, linestyle='-', color='black', label='Median $SO_2$')
+    ax.fill_between(
+        x_vals_1_10, 
+        diurnal_median_1_10.values - diurnal_se_1_10.values,
+        diurnal_median_1_10.values + diurnal_se_1_10.values,
+        color='orange', alpha=0.3, label='±1 SE'
+    )
+    
+    # Display the combined figure
+    ax.set_xticks(tick_indices)
+    ax.set_xticklabels(tick_labels, rotation=45, fontsize=22)
+    plt.yticks(fontsize=22)
+
+    ax.set_title("10-minute Diurnal Cycle $SO_2$", fontsize=20)
+    ax.set_xlabel("Hour of day (UTC)", fontsize=22)
+    ax.set_ylabel("$SO_2$ (ppt)", fontsize=22) 
+    ax.legend(fontsize=18)
+    
+    plt.tight_layout()
+    plt.show()    
+    
+def MH_met_data(met_data_dir, flagged_data):
+    data = flagged_data.copy()
+    met_data = pd.read_csv(met_data_dir, header = 2, sep = ",")
+    #make it so that the data is all of the same time stamp.
+    
+    def convert_to_date(x):
+        return datetime.date(2025,1,1)+datetime.timedelta(days=int(x)-150)
+    met_data["time"] = (
+    met_data["hour"].astype(str).str.zfill(2) + ":" +
+    met_data["min"].astype(str).str.zfill(2) + ":" +
+    met_data["sec"].astype(str).str.zfill(2)
+    )
+    met_data["Date"] = met_data["day number"].apply(convert_to_date).astype(str)
+    
+    met_data["Date_time"] = pd.to_datetime(met_data["Date"] + ' ' + met_data["time"])
+    
+   # wind speed (m/s)	wind direction (deg)	temperature (deg C)	humidity (%)	pressure (hPa)	rain (mm)
+
+    met_data["Date_time"] = pd.to_datetime(met_data["Date_time"])
+    #key parameters to look at in the met data for TASMANIA
+    
+    met_data["temperature (deg C)"]
+    met_data["humidity (%)"]
+    met_data["pressure (hPa)"]
+    met_data["rain (mm)"]
+    
+    data["Date_time"] = pd.to_datetime(data["Date_time"])
+    
+    fig, so2_met = plt.subplots(5,1, sharex = True)
+    so2_met[0].plot(met_data["Date_time"], met_data["temperature (deg C)"],label = "mean temp")
+    so2_met[1].plot(met_data["Date_time"], met_data["humidity (%)"], label = "Relative humidity mean")
+    so2_met[2].plot(met_data["Date_time"], met_data["pressure (hPa)"], label = "Atmos pressure")
+    #so2_met[2].set_ylim(ymin = 98, ymax = 104)
+    so2_met[3].plot(met_data["Date_time"], met_data["rain (mm)"], label = "Rain")
+    so2_met[4].plot(data["Date_time"], data["amb_SO2_ppt"], label = "SO2 (ppt)")
+    for ax in so2_met.flat:
+        ax.legend(loc = "upper left")
+    
+    return data
+#do we need to remove about 1 hour after every restart? Need to find a way to do this in a rolling fashion,
+#so using the processing var thing?
+import os
+import re
+import pandas as pd
+import matplotlib.pyplot as plt
+from datetime import timedelta
+
+def remove_restart(data, data_dir, day_folders):
+    data_to_remove_restart = data.copy()
+    # 1. Force Date_time to datetime objects immediately
+    data_to_remove_restart["Date_time"] = pd.to_datetime(data_to_remove_restart["Date_time"])
+    
+    log_records = []
+    
+    for day in day_folders:
+        log_dir = os.path.join(data_dir, day, f"LIFLog_{day}")
+        if not os.path.exists(log_dir):
+            print(f"Skipping: {log_dir} (Directory not found)")
+            continue
+
+        for log_file in os.listdir(log_dir):
+            if not log_file.startswith('LIFLog'):
+                continue
+                
+            file_path = os.path.join(log_dir, log_file)
+            with open(os.path.join(log_dir, log_file), "r") as infile:
+                raw_line = infile.readline().strip()
+            
+            # 1. Only extract the TIME from the log file (HH:MM:SS)
+            time_match = re.search(r"(\d{1,2}):(\d{2}):(\d{2})", raw_line)
+            
+            if time_match:
+                # 2. Get the DATE from the day variable (which is YYYYMMDD)
+                # This ensures June stays June!
+                hr, mn, sc = time_match.groups()
+                
+                # Combine: YYYY-MM-DD from 'day' + HH:MM:SS from 'file'
+                # Assuming 'day' is in format '20250601'
+                clean_ts = pd.to_datetime(f"{day} {hr}:{mn}:{sc}", format="%Y%m%d %H:%M:%S")
+                
+                log_records.append(clean_ts)
+                print(f"Corrected Restart: {clean_ts} (from {log_file})")
+
+    if not log_records:
+        print("WARNING: No restart times were found in the log files.")
+        return data_to_remove_restart
+
+    # 4. Remove the time blocks
+    initial_count = len(data_to_remove_restart)
+    
+    for restart_start in log_records:
+        restart_end = restart_start + timedelta(minutes=60) # Changed to 30 mins
+        
+        mask = (data_to_remove_restart["Date_time"] >= restart_start) & \
+               (data_to_remove_restart["Date_time"] <= restart_end)
+        
+        rows_to_remove = mask.sum()
+        data_to_remove_restart = data_to_remove_restart[~mask]
+        print(f"Removed {rows_to_remove} rows between {restart_start} and {restart_end}")
+
+    final_count = len(data_to_remove_restart)
+    print(f"Total rows removed: {initial_count - final_count}")
+
+    # Plotting
+    plt.figure(figsize=(12, 5))
+    plt.plot(data_to_remove_restart["Date_time"], data_to_remove_restart["amb_SO2_ppt"], label="Cleaned Data")
+    plt.axhline(0, color='red', linestyle='--')
+    plt.legend()
+    plt.show()
+
+    return data_to_remove_restart
+
+def flag_data(data, plot, version, campagin_list):
+    
+    data_to_flag = data.copy()
+    data_to_flag["Date_time"] = pd.to_datetime(data_to_flag["Date_time"])
+    data_to_flag = data_to_flag.set_index("Date_time")
+    data_to_flag["flag"] = np.zeros(len(data_to_flag)) #np.nan
+    campagin_list=campagin_list
+    
+    #select for which campagin we are looking at!
+    if campagin_list == "MACE_HEAD":
+    #window where the data is trust worthy!
+        #trust_windows = [("2025-06-01 13:17:00", "2025-06-16 22:45:00"),
+                         #]
+        #for start, end in trust_windows:
+            #data_to_flag.loc[start:end, "flag"] = 0
+            
+        #windows to treat with caution!
+        caution_windows = [("2025-06-20 12:55:00", "2025-06-25 15:00:00"),
+                           ("2025-06-13 15:40:00", "2025-06-13 15:50:00")
+            #("2025-06-23 20:55:00", "2025-06-24 10:49:00"),
+                           ]
+        for start, end in caution_windows:
+            data_to_flag.loc[start:end, "flag"] = 1
+    
+    if campagin_list == "TASMANIA":
+     #window where the data is trust worthy!
+         #trust_windows = [("2025-06-01 13:17:00", "2025-06-16 22:45:00"),
+          #                ]
+         #for start, end in trust_windows:
+            # data_to_flag.loc[start:end, "flag"] = 0
+             
+         #windows to treat with caution!
+         caution_windows = [("2024-12-05 00:00:00", "2024-12-31 23:59:59"),
+                            ("2025-03-05 09:00:00", "2025-03-06 09:00:00") #lots of confounding factors!
+             #("2025-06-23 20:55:00", "2025-06-24 10:49:00"),
+                            ]
+         for start, end in caution_windows:
+             data_to_flag.loc[start:end, "flag"] = 1       
+        
+        #no_data_windows = [()]
+    if campagin_list == "DY195":
+      #window where the data is trust worthy!
+          #trust_windows = [("2025-06-01 13:17:00", "2025-06-16 22:45:00"),
+           #                ]
+          #for start, end in trust_windows:
+             # data_to_flag.loc[start:end, "flag"] = 0
+              
+          #windows to treat with caution!
+          caution_windows = [("2025-06-23 17:25:00", "2025-06-24 12:30:00"),
+                             ("2025-06-02 15:30:00", "2025-06-03 11:00:00"),    # not on UTC fully
+                             ("2025-06-06 16:00:00", "2025-06-07 11:55:00"),
+                             #("2025-06-07 08:31:00","2025-06-07 11:55:00")
+              #("2025-06-23 20:55:00", "2025-06-24 10:49:00"),
+                             ]
+          for start, end in caution_windows:
+              data_to_flag.loc[start:end, "flag"] = 1    
+        
+    
+    if plot:
+        fig, ax = plt.subplots(figsize=(12, 6))
+        ax.plot(data_to_flag.index, data_to_flag["amb_SO2_ppt"], color="black", label="SO2 (ppt)")
+        
+        # This loop draws a red box for EVERY window in the list
+        for i, (start, end) in enumerate(caution_windows):
+            label = "Caution needed (flag == 1)" if i == 0 else None # Only label the first one to avoid messy legends
+            ax.axvspan(pd.to_datetime(start), pd.to_datetime(end), color="red", alpha=0.3, label=label)
+            
+        plt.title(f"SO2 {version} flagged periods")
+        ax.legend()
+        plt.show()
+    
+    #return (df_reindexed
+    #        .reset_index()
+    #        .rename(columns={'index': 'Date_time'})
+     #       .drop(columns=['COG_deg_1min'], errors='ignore'))
+    data_to_flag = data_to_flag.reset_index()
+    data_to_flag = data_to_flag[["Date_time","amb_SO2_ppt", "flag"]]
+          
+    return data_to_flag
+
+
+def MACE_HEAD_baseline_criteria(data, met_data_dir, NOx_data_path):
+    #https://nuigalwayie.sharepoint.com/sites/Group_MaceHeadJune2025/Shared%20Documents/Forms/AllItems.aspx?id=%2Fsites%2FGroup%5FMaceHeadJune2025%2FShared%20Documents%2FMeteo%2FClean%20Sector%20Criteria%2Epdf&parent=%2Fsites%2FGroup%5FMaceHeadJune2025%2FShared%20Documents%2FMeteo
+    data_to_baseline = data.copy()
+    data_to_baseline["Date_time"] = pd.to_datetime(data_to_baseline["Date_time"])
+    
+    met_data = pd.read_csv(met_data_dir, header = 2, sep = ",")
+    def convert_to_date(x):
+        return datetime.date(2025,1,1)+datetime.timedelta(days=int(x)-150)
+    met_data["time"] = (
+    met_data["hour"].astype(str).str.zfill(2) + ":" +
+    met_data["min"].astype(str).str.zfill(2) + ":" +
+    met_data["sec"].astype(str).str.zfill(2)
+    )
+    met_data["Date"] = met_data["day number"].apply(convert_to_date).astype(str)
+    
+    met_data["Date_time"] = pd.to_datetime(met_data["Date"] + ' ' + met_data["time"])
+    
+   # wind speed (m/s)	wind direction (deg)	temperature (deg C)	humidity (%)	pressure (hPa)	rain (mm)
+
+    met_data["Date_time"] = pd.to_datetime(met_data["Date_time"])
+    
+    wind_speed = met_data["wind speed (m/s)"]
+    #wind_speed_mask = wind_speed >= 3
+    #wind_speed = wind_speed[wind_speed_mask]
+    
+    wind_direction = met_data["wind direction (deg)"]
+    #wind_direction_mask = (wind_direction >= 190) &(wind_direction <= 290)
+    #wind_direction = wind_direction[wind_direction_mask]
+    
+    #extratc wind direction and wind speed from this.
+    #RADON = RESOLUTION OF 1 HOUR
+    radon = pd.read_cvs(r"E:\LOKISO2\MACE HEAD\Mace Head other data\MHD-Radon-may-jun2025.xlsx")
+    radon["time"] = (
+    radon["hour"].astype(str).str.zfill(2) + ":" +
+    radon["min"].astype(str).str.zfill(2) + ":" +
+    radon["sec"].astype(str).str.zfill(2)
+    )
+    radon["Date"] = radon["day number"].apply(convert_to_date).astype(str)
+    radon["Date_time"] = pd.to_datetime(radon["Date"] + ' ' + radon["time"])
+    radon["Date_time"] = pd.to_datetime(radon["Date_time"])
+    mask_radon = (radon["Flag"] == 'O')
+    radon = radon[mask_radon]
+    
+    baseline_radon = radon <= 0.1
+    
+    #PARTICLE COUNT
+    #particle conc = 
+    
+    
+    fig, params = plt.subplots(7,1, sharex = True)
+    params[0].plot(data_to_baseline["Date_time"], data_to_baseline["amb_SO2_ppt"], label = "SO2 (ppt)")
+    params[1].plot(radon["Date_time"], radon["rn"], label = "Radon")
+    params[1].scatter(baseline_radon["Date_time"], baseline_radon["rn"], label = "Radon", color = "red", alpha = 0.3)
+    params[1].set_ylabel("Radon ($Bq m^-3$)")
+    params[2].plot(met_data["Date_time"], wind_speed, label = "Wind speed")
+    params[3].plot(met_data["Date_time"], wind_direction, label = "Wind direction")
+    
+    #then at the very end, also plot the NOx data. If we still see real large spikes that seem hella sus
+    #we can then use the NOx as a flag aswell!.
+    NOx_data = pd.read_csv(NOx_data_path)
+    NOx_data["Date_time"] = pd.to_datetime(NOx_data["Date_time"])
+    #what limit shall we use for the NOx data? 
+    
+    #now, filter for all of these!
+    #need to merge the datasets I think? SO may need ot drop the resolution for them, or do it in a way
+    #like the cape-k data, so that it handles it correctly!
+    
+    baseline_SO2 = data_to_baseline(baseline_radon)
 #-------------------------------------------------------------------------------#
                             #TASMANIA RELEVANT FUNCTIONS
 #-------------------------------------------------------------------------------#
@@ -9068,7 +10717,7 @@ def Tasmania_flagged_periods(TAS_interuptions_path, SO2_data):
     bax = brokenaxes(
     xlims=(
         (datetime.datetime(2025, 1, 10), datetime.datetime(2025, 1, 29)),
-        (datetime.datetime(2025, 3, 6), datetime.datetime(2025, 3, 12)) # Fixed dates
+        (datetime.datetime(2025, 3, 4), datetime.datetime(2025, 3, 12)) # Fixed dates
     ),
     hspace=0.05,
     despine=False
@@ -9080,17 +10729,19 @@ def Tasmania_flagged_periods(TAS_interuptions_path, SO2_data):
         (SO2_data['trailing_from_set_flags_remove'] == 0)].copy()
     
     bax.plot(SO2_data_clean["Date_time"], SO2_data_clean["amb_SO2_ppt"])
-    bax.set_title("Flagged Periods Removed",fontsize = 16)
-    bax.set_ylabel("SO2 (ppt)",fontsize = 16)
+    #bax.set_title("Flagged Periods Removed",fontsize = 16)
+    bax.set_ylabel("$SO_2$ (ppt)",fontsize = 16)
+    bax.set_ylim(ymax = 500, ymin = -50)
+    bax.set_xlabel("Datetime (UTC)", fontsize = 16)
     # 4. Format the dates for every sub-axis
     for ax in bax.axs:
-        ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%b-%d'))
+        ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d'))
         # Optional: Rotate dates so they don't overlap
         plt.setp(ax.get_xticklabels(), rotation=30, ha='right')
         #plt.tight_layout()
     # 5. Fix the diagonals (optional styling)
     [x.remove() for x in bax.diag_handles]
-    bax.draw_diags()
+    bax.draw_diags(d=0.005)
     # Instead of tight_layout, use this at the very end before plt.show()
     #plt.subplots_adjust(left=0.15, bottom=0.15, right=0.95, top=0.90)
     plt.ylim(ymax = 500)
@@ -9103,6 +10754,60 @@ def Tasmania_flagged_periods(TAS_interuptions_path, SO2_data):
     plt.xticks(fontsize = 16)
     plt.ylabel("SO2 (ppt)", fontsize = 20)
     plt.yticks(fontsize = 16)
+    
+    aedt = pytz.timezone("Australia/Sydney")
+    time_zone_converted_data = SO2_data_clean.copy()
+    time_zone_converted_data['Date_time'] = pd.to_datetime(time_zone_converted_data['Date_time'],utc=True).dt.tz_convert(aedt)
+    
+    fig = plt.figure(figsize=(12, 6))
+    bax = brokenaxes(
+    xlims=(
+        (datetime.datetime(2025, 1, 10), datetime.datetime(2025, 1, 29)),
+        (datetime.datetime(2025, 3, 5), datetime.datetime(2025, 3, 12)) # Fixed dates
+    ),
+    hspace=0.05,
+    despine=False
+)
+
+    
+    bax.plot(time_zone_converted_data["Date_time"], time_zone_converted_data["amb_SO2_ppt"])
+    #bax.set_title("Flagged Periods Removed",fontsize = 16)
+    bax.set_ylabel("$SO_2$ (ppt)",fontsize = 16)
+    bax.set_ylim(ymax = 500, ymin = -50)
+    bax.set_xlabel("Datetime (AEDT)", fontsize = 16, labelpad = 25)
+   
+    # 4. Format the dates for every sub-axis
+    for ax in bax.axs:
+        ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d'))
+        # Optional: Rotate dates so they don't overlap
+        plt.setp(ax.get_xticklabels(), rotation=0, ha='right')
+        #plt.tight_layout()
+    # 5. Fix the diagonals (optional styling)
+    [x.remove() for x in bax.diag_handles]
+    bax.draw_diags()
+    # Instead of tight_layout, use this at the very end before plt.show()
+    #plt.subplots_adjust(left=0.15, bottom=0.15, right=0.95, top=0.90)
+    plt.ylim(ymax = 500)
+    plt.show()
+    
+    
+    fig, h = plt.subplots(2,1)
+    h[0].plot(time_zone_converted_data['Date_time'], time_zone_converted_data['amb_SO2_ppt'])
+    h[0].set_ylabel("$SO_2$ (ppt)", fontsize = 16)
+    h[0].set_xlabel("Datetime (AEDT)", fontsize = 16)
+    h[0].tick_params(axis='both', labelsize=16)
+    h[1].set_xlim(
+        (datetime.datetime(2025, 1, 10), datetime.datetime(2025, 1, 29)) # Fixed dates
+    )
+    
+    h[1].plot(time_zone_converted_data['Date_time'], time_zone_converted_data['amb_SO2_ppt'])
+    h[1].set_ylabel("$SO_2$ (ppt)", fontsize = 16)
+    h[1].set_xlabel("Datetime (AEDT)", fontsize = 16)
+    h[1].tick_params(axis='both', labelsize=16)
+    h[1].set_xlim(
+        (datetime.datetime(2025, 3, 4), datetime.datetime(2025, 3, 12)) # Fixed dates
+    )
+    
     
     
     return SO2_data_clean
@@ -9249,8 +10954,7 @@ def TAS_windrose(data, met_data_dir, wind_dir):
 def TAS_in_sector_diurnal_1min(SO2_1min_in_sector):
     #copy all the data as appropriate!
     SO2_1min_in_sector = SO2_1min_in_sector.rename(columns={'time_1min': 'Date_time'})
-    SO2_1min_in_sector['Date_time'] = pd.to_datetime(SO2_1min_in_sector['Date_time'], 
-                                                     utc=True).dt.tz_convert('Etc/GMT+1')
+    SO2_1min_in_sector['Date_time'] = pd.to_datetime(SO2_1min_in_sector['Date_time'])
     SO2_in_sector_1_min_for_hour = SO2_1min_in_sector.copy()
     SO2_in_sector_1_min_for_10_mins = SO2_1min_in_sector.copy()
     
@@ -9275,8 +10979,8 @@ def TAS_in_sector_diurnal_1min(SO2_1min_in_sector):
         color='green', alpha=0.3, label='±1 SE'
     )
     # Styling
-    plt.title("1hour diurnal of SO2 (DY195, whole cruise)", fontsize = 20)
-    plt.xlabel("Hour of day (UTC -1)", fontsize=22)
+    plt.title("1hour diurnal of $SO_2$", fontsize = 20)
+    plt.xlabel("Hour of day (AEDT)", fontsize=22)
     plt.ylabel("SO₂ (ppt)", fontsize=22)
     plt.xticks(range(0, 24), fontsize=22)
     plt.yticks(fontsize=22)
@@ -9329,8 +11033,8 @@ def TAS_in_sector_diurnal_1min(SO2_1min_in_sector):
     ax.set_xticklabels(tick_labels, rotation=45, fontsize=22)
     plt.yticks(fontsize=22)
 
-    ax.set_title("10-minute Diurnal Cycle (SO2, DY195 whole cruise)", fontsize=20)
-    ax.set_xlabel("Hour of day (UTC-1)", fontsize=22)
+    ax.set_title("10-minute Diurnal Cycle of $SO_2$", fontsize=20)
+    ax.set_xlabel("Hour of day (AEDT)", fontsize=22)
     ax.set_ylabel("$SO_2$ (ppt)", fontsize=22) 
     ax.legend(fontsize=18)
     
@@ -9357,8 +11061,8 @@ def TAS_in_sector_diurnal_1min(SO2_1min_in_sector):
         color='orange', alpha=0.3, label='±1 SE'
     )
     # Styling
-    plt.title("1hour diurnal of SO2 (DY195, whole cruise)", fontsize = 20)
-    plt.xlabel("Hour of day (UTC -1)", fontsize=22)
+    plt.title("1hour diurnal of $SO_2$", fontsize = 20)
+    plt.xlabel("Hour of day (AEDt)", fontsize=22)
     plt.ylabel("SO₂ (ppt)", fontsize=22)
     plt.xticks(range(0, 24), fontsize=22)
     plt.yticks(fontsize=22)
@@ -9411,15 +11115,44 @@ def TAS_in_sector_diurnal_1min(SO2_1min_in_sector):
     ax.set_xticklabels(tick_labels, rotation=45, fontsize=22)
     plt.yticks(fontsize=22)
 
-    ax.set_title("10-minute Diurnal Cycle (SO2, DY195 whole cruise)", fontsize=20)
-    ax.set_xlabel("Hour of day (UTC-1)", fontsize=22)
+    ax.set_title("10-minute Diurnal Cycle $SO_2$", fontsize=20)
+    ax.set_xlabel("Hour of day (AEDT)", fontsize=22)
     ax.set_ylabel("$SO_2$ (ppt)", fontsize=22) 
     ax.legend(fontsize=18)
     
     plt.tight_layout()
     plt.show()    
     
+def TAS_met_data(met_data_dir, flagged_data):
+    data = flagged_data.copy()
+    met_data = pd.read_csv(met_data_dir)
+    #make it so that the data is all of the same time stamp.
+    met_data = met_data.rename(columns={'time': 'Date_time'})
+    met_data["Date_time"] = pd.to_datetime(met_data["Date_time"])
+    #key parameters to look at in the met data for TASMANIA
     
+    met_data["temp_mean"]
+    met_data["rh_mean"]
+    met_data["atmos_pressure"]
+    
+    data["Date_time"] = pd.to_datetime(data["Date_time"])
+    
+    fig, so2_met = plt.subplots(4,1, sharex = True)
+    so2_met[0].plot(met_data["Date_time"], met_data["temp_mean"],label = "mean temp")
+    so2_met[1].plot(met_data["Date_time"], met_data["rh_mean"], label = "Relative humidity mean")
+    so2_met[2].plot(met_data["Date_time"], met_data["atmos_pressure"], label = "Atmos pressure")
+    so2_met[2].set_ylim(ymin = 98, ymax = 104)
+    so2_met[3].plot(data["Date_time"], data["amb_SO2_ppt"], label = "SO2 (ppt)")
+    for ax in so2_met.flat:
+        ax.legend(loc = "upper left")
+    
+    return data
+
+def save_to_csv_TAS(data_dir, filename, data):
+    
+    file_path = os.path.join(data_dir, f'{filename}.txt')
+    data = data.drop(columns = ["data_flag_remove", "peak_find_not_catching_remove", "trailing_from_set_flags_remove"]) 
+    data.to_csv(file_path, mode='w', header=True, index=False, sep=',')  
 #need baseline flags
 #need wind direction?
 #need irradiance?
