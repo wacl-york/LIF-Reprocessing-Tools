@@ -1936,12 +1936,13 @@ def analyse_cals(data, data_dir, channels, molecule, cal_cylinder_conc
         , 1
         , 0
         )
+    # Cumulatively sum the start_of_cal flags to number the calibrations
+    cts_data['cal_number'] = cts_data['start_of_cal'].cumsum()
     # Mask for calibration periods with cal SB off
     cal_task_mask = ((cts_data['Task'] == cal_task) &
                      (cts_data['Cal_SB_MFC_Read'] < 0.01))
     cts_data = cts_data[cal_task_mask]
-    # Cumulatively sum the start_of_cal flags to number the calibrations
-    cts_data['cal_number'] = cts_data['start_of_cal'].cumsum()
+   
 
     num_cals = cts_data['cal_number'].max()
     print(f'\n{num_cals} calibrations found')
@@ -2859,12 +2860,12 @@ def CARES_NO_plot_data_old(data_dir, data):
     # Plot the median line
     ax_diurnal[0].plot(x_data, median_no, 
                        label='Median Clean NO', 
-                       color='#4f46e5', 
+                       color='#6BC5F2', 
                        linewidth=2)
 
     # Add the shading (IQR) using plt.fill_between
     ax_diurnal[0].fill_between(x_data, q25_no, q75_no, 
-                               color='#4f46e5', 
+                               color='#6BC5F2', 
                                alpha=0.3, 
                                label='IQR (25th to 75th Percentile)')
 
@@ -2887,13 +2888,13 @@ def CARES_NO_plot_data_old(data_dir, data):
     # Plot the median line
     ax_diurnal[1].plot(x_data, median_no2, 
                        label='Median Clean $\\text{NO}_2$', 
-                       color='#dc2626', 
+                       color='#32933D', 
                        linestyle='-', 
                        linewidth=2)
 
     # Add the shading (IQR) using plt.fill_between
     ax_diurnal[1].fill_between(x_data, q25_no2, q75_no2, 
-                               color='#dc2626', 
+                               color='#32933D', 
                                alpha=0.3, 
                                label='IQR (25th to 75th Percentile)')
 
@@ -2951,50 +2952,50 @@ def CARES_NO_plot_data_old(data_dir, data):
     # Plot Clean NO (Emerald Green)
     ax_timeseries[0].plot(plot_data_60min.index, 
                           plot_data_60min['clean_NO'], 
-                          color='#10b981', 
+                          color='#CC9F33', 
                           linewidth=1.5, 
-                          label='Clean NO (B=10)') 
+                          label='Clean NO') 
     # Plot Other NO (Red)
     ax_timeseries[0].plot(plot_data_60min.index, 
                           plot_data_60min['other_NO'], 
-                          color='#ef4444', 
+                          color='#6BC5F2', 
                           linewidth=1.5, 
-                          label='Other Data (B \u2260 10)') 
+                          label='Other Data') 
 
     ax_timeseries[0].set_title(
         'Full Time Series of NO Concentration at Mace Head (60-min median)', 
         fontsize=14, 
-        fontweight='bold'
+        fontweight='bold',
+        color='#18147F'
     )
     ax_timeseries[0].set_ylabel('NO Concentration (ppt)', fontsize=12)
     ax_timeseries[0].legend(loc='upper right')
-    ax_timeseries[0].grid(True, linestyle=':', alpha=0.6)
 
 
     # --- Plot 2: NO2 Concentration ---
     # Plot Clean NO2 (Emerald Green)
     ax_timeseries[1].plot(plot_data_60min.index, 
                           plot_data_60min['clean_NO2'], 
-                          color='#10b981', 
+                          color='#CC9F33', 
                           linewidth=1.5, 
-                          label='Clean $\\text{NO}_2$ (B=10)')
+                          label='Clean $\\text{NO}_2$')
     # Plot Other NO2 (Red)
     ax_timeseries[1].plot(plot_data_60min.index, 
                           plot_data_60min['other_NO2'], 
-                          color='#ef4444', 
+                          color='#32933D', 
                           linewidth=1.5, 
-                          label='Other Data (B \u2260 10)')
+                          label='Other Data')
 
     ax_timeseries[1].set_title(
         'Full Time Series of $\\text{NO}_2$ Concentration at Mace Head (60-min median)', 
         fontsize=14, 
-        fontweight='bold'
+        fontweight='bold',
+        color='#18147F'
     )
     ax_timeseries[1].set_ylabel(
         '$\\text{NO}_2$ Concentration (ppt)', fontsize=12
     )
     ax_timeseries[1].legend(loc='upper right')
-    ax_timeseries[1].grid(True, linestyle=':', alpha=0.6)
 
 
     # Formatting the X-axis (shared for both plots)
@@ -3005,13 +3006,25 @@ def CARES_NO_plot_data_old(data_dir, data):
     ax_timeseries[1].set_xlabel('Date (Year-Month)', fontsize=12)
 
     fig_timeseries.tight_layout() # Adjust layout for the second figure
+    
+    for ax in ax_timeseries:
+        ax.legend(loc='upper right', labelcolor='#18147F', edgecolor='#18147F')
+        
+        ax.spines['bottom'].set_color('#18147F')
+        ax.spines['top'].set_color('#18147F')
+        ax.spines['left'].set_color('#18147F')
+        ax.spines['right'].set_color('#18147F')
+        
+        ax.xaxis.label.set_color('#18147F')       
+        ax.yaxis.label.set_color('#18147F')         
+    
+        ax.tick_params(axis='x', colors='#18147F')    
+        ax.tick_params(axis='y', colors='#18147F')
 
     plt.show() # Display both figures
 
     print("All plots generated successfully: Diurnal cycle (Median and IQR) and "
           "full campaign Time Series (60-min median) showing clean vs. other data.")
-    
-    
 
 def hampel_filter(series, window_size=101, n_sigmas=3):
     # Ensure window_size is odd for centering
@@ -3418,14 +3431,14 @@ def CARES_NO_diurnal_mean_of_medians(data_dir, data):
     fig_diurnal, ax_diurnal = plt.subplots(2, 1, figsize=(8, 10), sharex=True)
     
     # NO Plot
-    ax_diurnal[0].plot(diurnal_df['hour_of_day'], diurnal_df['clean_NO_mean'], color='#4f46e5', lw=2.5, label='NO')
-    ax_diurnal[0].fill_between(diurnal_df['hour_of_day'], (diurnal_df['clean_NO_mean']-diurnal_df['clean_NO_std']), (diurnal_df['clean_NO_mean']+diurnal_df['clean_NO_std']), color='#4f46e5', alpha=0.2, label='+/- 1stddev')
+    ax_diurnal[0].plot(diurnal_df['hour_of_day'], diurnal_df['clean_NO_mean'], color='#6BC5F2', lw=2.5, label='NO')
+    ax_diurnal[0].fill_between(diurnal_df['hour_of_day'], (diurnal_df['clean_NO_mean']-diurnal_df['clean_NO_std']), (diurnal_df['clean_NO_mean']+diurnal_df['clean_NO_std']), color='#6BC5F2', alpha=0.2, label='+/- 1stddev')
     ax_diurnal[0].set_ylabel('NO (ppt)', fontsize=11)
-    ax_diurnal[0].set_title('Diurnal Cycle: mean of 60min median', fontweight='bold', fontsize=13)
+    ax_diurnal[0].set_title('Diurnal Cycle: mean of 60min median', fontweight='bold', fontsize=13, color='#18147F')
 
     # NO2 Plot
-    ax_diurnal[1].plot(diurnal_df['hour_of_day'], diurnal_df['clean_NO2_mean'], color='#dc2626', lw=2.5, label='NO₂')
-    ax_diurnal[1].fill_between(diurnal_df['hour_of_day'], (diurnal_df['clean_NO2_mean']-diurnal_df['clean_NO2_std']), (diurnal_df['clean_NO2_mean']+diurnal_df['clean_NO2_std']), color='#dc2626', alpha=0.2, label='+/- 1stddev')
+    ax_diurnal[1].plot(diurnal_df['hour_of_day'], diurnal_df['clean_NO2_mean'], color='#32933D', lw=2.5, label='NO₂')
+    ax_diurnal[1].fill_between(diurnal_df['hour_of_day'], (diurnal_df['clean_NO2_mean']-diurnal_df['clean_NO2_std']), (diurnal_df['clean_NO2_mean']+diurnal_df['clean_NO2_std']), color='#32933D', alpha=0.2, label='+/- 1stddev')
     ax_diurnal[1].set_ylabel('NO₂ (ppt)', fontsize=11)
     
     # Formatting
@@ -3435,8 +3448,18 @@ def CARES_NO_diurnal_mean_of_medians(data_dir, data):
     ax_diurnal[1].set_xlim(0, 23)
 
     for ax in ax_diurnal:
-        ax.legend(loc='upper right')
-        ax.grid(True, linestyle='--', alpha=0.5)
+        ax.legend(loc='upper right', labelcolor='#18147F', edgecolor='#18147F')
+        
+        ax.spines['bottom'].set_color('#18147F')
+        ax.spines['top'].set_color('#18147F')
+        ax.spines['left'].set_color('#18147F')
+        ax.spines['right'].set_color('#18147F')
+        
+        ax.xaxis.label.set_color('#18147F')       
+        ax.yaxis.label.set_color('#18147F')         
+
+        ax.tick_params(axis='x', colors='#18147F')    
+        ax.tick_params(axis='y', colors='#18147F')
     
     plt.tight_layout()
     
@@ -3523,13 +3546,13 @@ def CARES_NO_diurnal_median_of_means(data_dir, data):
     
     # NO Plot
     ax_diurnal[0].plot(diurnal_df['hour_of_day'], diurnal_df['clean_NO_median'], color='#4f46e5', lw=2.5, label='NO')
-    ax_diurnal[0].fill_between(diurnal_df['hour_of_day'], diurnal_df['clean_NO_p25'], diurnal_df['clean_NO_p75'], color='#4f46e5', alpha=0.2, label='IQR')
+    ax_diurnal[0].fill_between(diurnal_df['hour_of_day'], diurnal_df['clean_NO_p25'], diurnal_df['clean_NO_p75'], color='#6BC5F2', alpha=0.2, label='IQR')
     ax_diurnal[0].set_ylabel('NO (ppt)', fontsize=11)
     ax_diurnal[0].set_title('Diurnal Cycle: median of 60min means', fontweight='bold', fontsize=13)
 
     # NO2 Plot
     ax_diurnal[1].plot(diurnal_df['hour_of_day'], diurnal_df['clean_NO2_median'], color='#dc2626', lw=2.5, label='NO₂')
-    ax_diurnal[1].fill_between(diurnal_df['hour_of_day'], diurnal_df['clean_NO2_p25'], diurnal_df['clean_NO2_p75'], color='#dc2626', alpha=0.2, label='IQR')
+    ax_diurnal[1].fill_between(diurnal_df['hour_of_day'], diurnal_df['clean_NO2_p25'], diurnal_df['clean_NO2_p75'], color='#32933D', alpha=0.2, label='IQR')
     ax_diurnal[1].set_ylabel('NO₂ (ppt)', fontsize=11)
     
     # Formatting
@@ -3540,7 +3563,6 @@ def CARES_NO_diurnal_median_of_means(data_dir, data):
 
     for ax in ax_diurnal:
         ax.legend(loc='upper right')
-        ax.grid(True, linestyle='--', alpha=0.5)
     
     plt.tight_layout()
     
